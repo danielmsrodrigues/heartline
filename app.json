@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Heartline",
+    "slug": "heartline",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "heartline",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.heartline.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "O Heartline precisa de acesso à câmara para fotografar os teus exames clínicos.",
+        "NSPhotoLibraryUsageDescription": "O Heartline precisa de acesso à galeria para importar fotos ou PDFs dos teus exames."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.heartline.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    }
+  }
+}
