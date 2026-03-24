@@ -16,6 +16,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
 import { File as ExpoFile } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { extractExamFromImage } from '@/lib/ai';
@@ -96,6 +97,7 @@ export default function AddExamScreen() {
         // Read PDF directly as base64 (no image manipulation)
         const file = new ExpoFile(uri);
         base64 = await file.base64();
+        console.log('PDF base64 length:', base64.length);
       } else {
         // Compress image and get base64
         const manipulated = await ImageManipulator.manipulateAsync(
@@ -112,14 +114,15 @@ export default function AddExamScreen() {
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Navigate to confirm-values with data
-      const dataParam = encodeURIComponent(
+      // Store data in AsyncStorage and navigate
+      await AsyncStorage.setItem(
+        'pending_exam_data',
         JSON.stringify({
           ...result,
           imageUri: mimeType !== 'application/pdf' ? uri : undefined,
         })
       );
-      router.push(`/(tabs)/confirm-values?data=${dataParam}` as any);
+      router.push('/confirm-values' as any);
     } catch (err) {
       console.error('Extraction error:', err);
       setExtractionError(

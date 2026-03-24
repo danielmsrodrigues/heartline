@@ -7,7 +7,17 @@ export async function extractExamFromImage(
   const { data, error } = await supabase.functions.invoke("extract-exam", {
     body: { image: imageBase64, mimeType },
   });
-  if (error) throw error;
+  if (error) {
+    // Try to get the actual error message from the response
+    console.error("Edge Function error:", error);
+    if (error.context) {
+      try {
+        const body = await error.context.json();
+        console.error("Edge Function response body:", JSON.stringify(body));
+      } catch {}
+    }
+    throw error;
+  }
   return data as {
     lab_name: string | null;
     exam_date: string | null;

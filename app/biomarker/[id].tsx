@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
-import { View, Text, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
+import { useMemo, useState } from 'react';
+import { View, Text, ScrollView, Dimensions, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, Line, Circle, Text as SvgText, Polyline, G } from 'react-native-svg';
+import { supabase } from '@/lib/supabase';
 import { useBiomarkers, BiomarkerWithScoring } from '@/hooks/useBiomarkers';
 import { useProfile } from '@/hooks/useProfile';
 import { AttentionBadge } from '@/components/attention-badge';
@@ -274,7 +275,43 @@ export default function BiomarkerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { familyHistory } = useProfile();
-  const { biomarkers } = useBiomarkers(familyHistory.length > 0);
+  const { biomarkers, refetch: refetchBio } = useBiomarkers(familyHistory.length > 0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const handleDeleteReading = (readingId: string, date: string) => {
+    Alert.alert(
+      'Apagar valor',
+      `Apagar o registo de ${formatDate(date)}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase.from('biomarkers').delete().eq('id', readingId);
+            refetchBio();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleStartEdit = (readingId: string, currentValue: number) => {
+    setEditingId(readingId);
+    setEditValue(currentValue.toString());
+  };
+
+  const handleSaveEdit = async (readingId: string) => {
+    const newValue = parseFloat(editValue);
+    if (isNaN(newValue)) {
+      Alert.alert('Valor inválido', 'Introduz um número válido.');
+      return;
+    }
+    await supabase.from('biomarkers').update({ value: newValue }).eq('id', readingId);
+    setEditingId(null);
+    refetchBio();
+  };
 
   const biomarker = useMemo(
     () => biomarkers.find((b) => b.name_normalized === id),
@@ -422,6 +459,81 @@ export default function BiomarkerDetailScreen() {
                 </Text>
               </View>
             )}
+          </Card>
+
+          {/* Readings history */}
+          <Card className="mb-4">
+            <Text className="text-base font-semibold text-gray-900 mb-3">
+              Histórico de valores
+            </Text>
+            {/* Table header */}
+            <View className="flex-row pb-2 mb-2 border-b border-gray-100">
+              <Text className="text-xs font-medium text-gray-500 flex-1">Data</Text>
+              <Text className="text-xs font-medium text-gray-500 w-24 text-right">Valor</Text>
+              <Text className="text-xs font-medium text-gray-500 w-16 text-right"></Text>
+            </View>
+            {[...biomarker.readings].reverse().map((r) => {
+              const isOutOfRange =
+                (biomarker.ref_min != null && r.value < biomarker.ref_min) ||
+                (biomarker.ref_max != null && r.value > biomarker.ref_max);
+              const isEditing = editingId === r.id;
+              return (
+                <View key={r.id} className="flex-row items-center py-2 border-b border-gray-50">
+                  <Text className="text-sm text-gray-600 flex-1">
+                    {formatDate(r.date)}
+                  </Text>
+                  {isEditing ? (
+                    <View className="flex-row items-center">
+                      <TextInput
+                        value={editValue}
+                        onChangeText={setEditValue}
+                        keyboardType="decimal-pad"
+                        autoFocus
+                        className="text-sm font-medium text-gray-900 border border-gray-300 rounded-lg px-2 py-1 w-20 text-right mr-1"
+                      />
+                      <TouchableOpacity
+                        onPress={() => handleSaveEdit(r.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="checkmark-circle" size={22} color="#8CB369" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setEditingId(null)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        className="ml-1"
+                      >
+                        <Ionicons name="close-circle" size={22} color="#9CA3AF" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <>
+                      <Text
+                        className={`text-sm font-medium w-24 text-right ${
+                          isOutOfRange ? 'text-red-500' : 'text-gray-900'
+                        }`}
+                      >
+                        {r.value} {biomarker.unit}
+                      </Text>
+                      <View className="flex-row w-16 justify-end">
+                        <TouchableOpacity
+                          onPress={() => handleStartEdit(r.id, r.value)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="pencil-outline" size={16} color="#9CA3AF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleDeleteReading(r.id, r.date)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          className="ml-2"
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </View>
+              );
+            })}
           </Card>
 
           {/* Family history note */}

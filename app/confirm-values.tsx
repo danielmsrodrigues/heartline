@@ -7,7 +7,8 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -29,7 +30,6 @@ interface ParsedData {
 
 export default function ConfirmValuesScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ data: string }>();
   const { user } = useAuth();
   const { regenerate } = useGeneratedContent();
 
@@ -40,21 +40,27 @@ export default function ConfirmValuesScreen() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (params.data) {
+    (async () => {
       try {
-        const decoded = decodeURIComponent(params.data);
-        const parsed: ParsedData = JSON.parse(decoded);
+        const raw = await AsyncStorage.getItem('pending_exam_data');
+        if (!raw) {
+          Alert.alert('Erro', 'Dados não encontrados. Tenta novamente.');
+          router.back();
+          return;
+        }
+        await AsyncStorage.removeItem('pending_exam_data');
+        const parsed: ParsedData = JSON.parse(raw);
         setLabName(parsed.lab_name ?? '');
         setExamDate(parsed.exam_date ? new Date(parsed.exam_date) : null);
         setMarkers(parsed.markers ?? []);
         setImageUri(parsed.imageUri ?? null);
       } catch (err) {
-        console.error('Error parsing params:', err);
+        console.error('Error loading exam data:', err);
         Alert.alert('Erro', 'Dados inválidos. Tenta novamente.');
         router.back();
       }
-    }
-  }, [params.data]);
+    })();
+  }, []);
 
   const handleUpdateMarker = (
     index: number,

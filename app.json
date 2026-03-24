@@ -30,7 +30,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-apple-authentication",
+      "@react-native-google-signin/google-signin",
+      ["@kingstinct/react-native-healthkit", {
+        "NSHealthShareUsageDescription": "O Heartline usa dados do Apple Health para complementar a tua visão de saúde cardiovascular, incluindo frequência cardíaca, pressão arterial e atividade física.",
+        "NSHealthUpdateUsageDescription": false,
+        "background": false
+      }]
     ],
     "experiments": {
       "typedRoutes": true

@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { SocialAuthButtons } from '@/components/social-auth-buttons';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -81,8 +82,19 @@ export default function LoginScreen() {
             <Button title="Entrar" onPress={handleLogin} loading={loading} />
 
             <TouchableOpacity
+              onPress={() => router.push('/(auth)/forgot-password')}
+              className="mt-3"
+            >
+              <Text className="text-center text-sm text-gray-400">
+                Esqueci-me da palavra-passe
+              </Text>
+            </TouchableOpacity>
+
+            <SocialAuthButtons />
+
+            <TouchableOpacity
               onPress={() => router.push('/(auth)/register')}
-              className="mt-4"
+              className="mt-6"
             >
               <Text className="text-center text-gray-500">
                 Não tens conta?{' '}

@@ -7,14 +7,16 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useProfile } from '@/hooks/useProfile';
 import { useBiomarkers } from '@/hooks/useBiomarkers';
 import { useGeneratedContent } from '@/hooks/useGeneratedContent';
+import { useHealthKit } from '@/hooks/useHealthKit';
 import { BiomarkerRow } from '@/components/biomarker-row';
 import { NarrativeCard } from '@/components/narrative-card';
 import { QuestionsCard } from '@/components/questions-card';
+import { HealthDataCard } from '@/components/health-data-card';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
@@ -39,13 +41,36 @@ export default function DashboardScreen() {
     regenerate,
     refetch: refetchContent,
   } = useGeneratedContent();
+  const {
+    data: healthData,
+    authorized: healthAuthorized,
+    loading: healthLoading,
+    isAvailable: healthAvailable,
+    connect: connectHealth,
+    refetch: refetchHealth,
+  } = useHealthKit();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Auto-refresh when screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      refetchProfile();
+      refetchBio();
+      refetchContent();
+      if (healthAuthorized) refetchHealth();
+    }, [refetchProfile, refetchBio, refetchContent, healthAuthorized, refetchHealth])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refetchProfile(), refetchBio(), refetchContent()]);
+    await Promise.all([
+      refetchProfile(),
+      refetchBio(),
+      refetchContent(),
+      healthAuthorized ? refetchHealth() : Promise.resolve(),
+    ]);
     setRefreshing(false);
-  }, [refetchProfile, refetchBio, refetchContent]);
+  }, [refetchProfile, refetchBio, refetchContent, healthAuthorized, refetchHealth]);
 
   // Incompleteness check
   const missing: string[] = [];
@@ -98,17 +123,23 @@ export default function DashboardScreen() {
 
         {/* Incompleteness badge */}
         {missing.length > 0 && (
-          <View className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-4">
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/settings' as any)}
+            className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-4"
+            activeOpacity={0.7}
+          >
             <View className="flex-row items-center mb-1">
               <Ionicons name="alert-circle-outline" size={16} color="#B8860B" />
               <Text className="text-sm font-semibold text-amber-800 ml-1.5">
                 Perfil incompleto
               </Text>
+              <View className="flex-1" />
+              <Ionicons name="chevron-forward" size={16} color="#B8860B" />
             </View>
             <Text className="text-xs text-amber-700">
               Falta: {missing.join(', ')}
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
 
         {/* Empty state */}
@@ -139,6 +170,19 @@ export default function DashboardScreen() {
             {biomarkers.map((b) => (
               <BiomarkerRow key={b.name_normalized} biomarker={b} />
             ))}
+          </View>
+        )}
+
+        {/* Apple Health */}
+        {healthAvailable && (
+          <View className="mt-4">
+            <HealthDataCard
+              data={healthData}
+              authorized={healthAuthorized}
+              loading={healthLoading}
+              isAvailable={healthAvailable}
+              onConnect={connectHealth}
+            />
           </View>
         )}
 

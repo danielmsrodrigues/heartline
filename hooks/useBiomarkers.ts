@@ -20,7 +20,7 @@ export interface BiomarkerWithScoring {
   position: number;
   trend: Trend;
   attentionLevel: AttentionLevel;
-  readings: { value: number; date: string }[];
+  readings: { id: string; value: number; date: string }[];
 }
 
 export function useBiomarkers(hasFamilyHistory: boolean = false) {
@@ -70,6 +70,12 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
       });
     }
 
+    const cardiovascularMarkers = [
+      'ldl', 'hdl', 'total_cholesterol', 'cholesterol', 'colesterol',
+      'triglycerides', 'trigliceridos', 'glucose', 'glicose',
+      'hba1c', 'crp', 'pcr', 'apolipoproteina', 'lipoproteina',
+    ];
+
     const scored: BiomarkerWithScoring[] = Object.entries(grouped).map(
       ([key, entries]) => {
         const sorted = entries.sort(
@@ -77,14 +83,17 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
         );
         const latest = sorted[0].marker;
         const readings = sorted
-          .map((e) => ({ value: e.marker.value, date: e.date }))
+          .map((e) => ({ id: e.marker.id, value: e.marker.value, date: e.date }))
           .reverse();
         const position = getPosition(latest.value, latest.ref_min, latest.ref_max);
         const trend = getTrend(readings);
+        const isCardiovascular = cardiovascularMarkers.some(
+          (m) => key.includes(m)
+        );
         const attentionLevel = getAttentionLevel(
           position,
           trend,
-          hasFamilyHistory
+          hasFamilyHistory && isCardiovascular
         );
 
         return {

@@ -42,7 +42,7 @@ serve(async (req) => {
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -73,8 +73,11 @@ serve(async (req) => {
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
       console.error("Gemini response:", JSON.stringify(data));
       return new Response(
-        JSON.stringify({ error: "Failed to extract data from image" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Failed to extract data from image",
+          gemini_error: data.error || data.promptFeedback || data,
+        }),
+        { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
       );
     }
 

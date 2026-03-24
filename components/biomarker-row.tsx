@@ -17,7 +17,7 @@ export function BiomarkerRow({ biomarker }: BiomarkerRowProps) {
     <TouchableOpacity
       className="bg-white rounded-2xl p-4 border border-gray-100 mb-3"
       activeOpacity={0.7}
-      onPress={() => router.push(`/(tabs)/biomarker/${biomarker.name_normalized}` as any)}
+      onPress={() => router.push(`/biomarker/${biomarker.name_normalized}` as any)}
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-1 mr-3">

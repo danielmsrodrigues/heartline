@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { SocialAuthButtons } from '@/components/social-auth-buttons';
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState('');
@@ -150,9 +151,11 @@ export default function RegisterScreen() {
               loading={loading}
             />
 
+            <SocialAuthButtons />
+
             <TouchableOpacity
               onPress={() => router.back()}
-              className="mt-4"
+              className="mt-6"
             >
               <Text className="text-center text-gray-500">
                 Já tens conta?{' '}
