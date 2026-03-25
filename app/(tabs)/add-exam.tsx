@@ -316,13 +316,13 @@ export default function AddExamScreen() {
   // GDPR Consent overlay
   if (showConsent && !consentGiven) {
     return (
-      <SafeAreaView className="flex-1 bg-white">
+      <SafeAreaView className="flex-1 bg-[#0A0A0A]">
         <View className="flex-1 justify-center px-6">
-          <Text className="text-xl font-bold text-gray-900 text-center mb-4">
+          <Text className="text-xl font-bold text-[#F5F5F5] text-center mb-4">
             Autorização para processamento
           </Text>
           <Card className="mb-6">
-            <Text className="text-sm text-gray-700 leading-5">
+            <Text className="text-sm text-[#888888] leading-5">
               Para analisar os teus exames, processamos dados de saúde.
               Extraímos valores usando IA, guardamos tudo encriptado na UE, e tu
               decides o que partilhar e podes apagar tudo a qualquer momento.
@@ -339,7 +339,7 @@ export default function AddExamScreen() {
             onPress={() => setShowConsent(false)}
             className="mt-3"
           >
-            <Text className="text-center text-sm text-gray-400">
+            <Text className="text-center text-sm text-[#555555]">
               Cancelar
             </Text>
           </TouchableOpacity>
@@ -351,13 +351,13 @@ export default function AddExamScreen() {
   // Extracting overlay
   if (extracting) {
     return (
-      <SafeAreaView className="flex-1 bg-white">
+      <SafeAreaView className="flex-1 bg-[#0A0A0A]">
         <View className="flex-1 items-center justify-center px-6">
-          <ActivityIndicator size="large" color="#8CB369" />
-          <Text className="text-base font-semibold text-gray-700 mt-4">
+          <ActivityIndicator size="large" color="#1D9E75" />
+          <Text className="text-base font-semibold text-[#F5F5F5] mt-4">
             A extrair valores...
           </Text>
-          <Text className="text-sm text-gray-500 mt-2 text-center">
+          <Text className="text-sm text-[#555555] mt-2 text-center">
             Estamos a analisar o teu exame. Pode demorar alguns segundos.
           </Text>
         </View>
@@ -401,7 +401,7 @@ export default function AddExamScreen() {
   // Manual mode
   if (mode === 'manual') {
     return (
-      <SafeAreaView className="flex-1 bg-white">
+      <SafeAreaView className="flex-1 bg-[#0A0A0A]">
         <ScrollView
           contentContainerStyle={{ paddingBottom: 40 }}
           keyboardShouldPersistTaps="handled"
@@ -409,9 +409,9 @@ export default function AddExamScreen() {
           <View className="px-6 pt-6">
             <View className="flex-row items-center mb-6">
               <TouchableOpacity onPress={() => setMode('choose')}>
-                <Ionicons name="arrow-back" size={24} color="#111827" />
+                <Ionicons name="arrow-back" size={24} color="#F5F5F5" />
               </TouchableOpacity>
-              <Text className="text-2xl font-bold text-gray-900 ml-3">
+              <Text className="text-2xl font-bold text-[#F5F5F5] ml-3">
                 Input manual
               </Text>
             </View>
@@ -432,14 +432,14 @@ export default function AddExamScreen() {
               textContentType="none"
             />
 
-            <Text className="text-base font-semibold text-gray-900 mt-4 mb-3">
+            <Text className="text-base font-semibold text-[#F5F5F5] mt-4 mb-3">
               Biomarcadores
             </Text>
 
             {markers.map((marker, index) => (
               <Card key={index} className="mb-3">
                 <View className="flex-row items-center justify-between mb-2">
-                  <Text className="text-sm font-semibold text-gray-900">
+                  <Text className="text-sm font-semibold text-[#F5F5F5]">
                     Biomarcador {index + 1}
                   </Text>
                   {markers.length > 1 && (
@@ -450,14 +450,14 @@ export default function AddExamScreen() {
                       <Ionicons
                         name="close-circle"
                         size={20}
-                        color="#9CA3AF"
+                        color="#555555"
                       />
                     </TouchableOpacity>
                   )}
                 </View>
 
                 {/* Template selector */}
-                <Text className="text-xs text-gray-500 mb-1.5">
+                <Text className="text-xs text-[#555555] mb-1.5">
                   Seleciona ou escreve o nome
                 </Text>
                 <ScrollView
@@ -471,15 +471,15 @@ export default function AddExamScreen() {
                       onPress={() => selectTemplate(index, ti)}
                       className={`px-2.5 py-1.5 rounded-lg mr-1.5 border ${
                         marker.templateIndex === ti
-                          ? 'bg-[#8CB369] border-[#8CB369]'
-                          : 'bg-gray-50 border-gray-200'
+                          ? 'bg-[#1D9E75] border-[#1D9E75]'
+                          : 'bg-[#0A0A0A] border-[#151515]'
                       }`}
                     >
                       <Text
                         className={`text-xs ${
                           marker.templateIndex === ti
                             ? 'text-white font-medium'
-                            : 'text-gray-600'
+                            : 'text-[#888888]'
                         }`}
                       >
                         {tmpl.name}
@@ -552,10 +552,10 @@ export default function AddExamScreen() {
 
             <TouchableOpacity
               onPress={addManualMarker}
-              className="flex-row items-center justify-center py-3 mb-4 border border-dashed border-gray-300 rounded-xl"
+              className="flex-row items-center justify-center py-3 mb-4 border border-dashed border-[#151515] rounded-xl"
             >
-              <Ionicons name="add-circle-outline" size={20} color="#8CB369" />
-              <Text className="text-sm font-medium text-[#8CB369] ml-2">
+              <Ionicons name="add-circle-outline" size={20} color="#1D9E75" />
+              <Text className="text-sm font-medium text-[#1D9E75] ml-2">
                 Adicionar biomarcador
               </Text>
             </TouchableOpacity>
@@ -573,19 +573,13 @@ export default function AddExamScreen() {
 
   // Choose mode (default)
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <View className="flex-1 bg-[#0A0A0A]">
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <View className="px-6 pt-6">
-          <Text className="text-2xl font-bold text-gray-900">
-            Adicionar exame
-          </Text>
-          <Text className="mt-2 text-base text-gray-500 mb-6">
-            Fotografa, importa ou introduz manualmente
-          </Text>
+        <View className="px-6 pt-2">
 
           {extractionError ? (
-            <View className="bg-red-50 rounded-xl p-3 mb-4">
-              <Text className="text-red-600 text-sm text-center">
+            <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
+              <Text className="text-[#E24B4A] text-sm text-center">
                 {extractionError}
               </Text>
             </View>
@@ -594,87 +588,72 @@ export default function AddExamScreen() {
           {/* Camera option */}
           <TouchableOpacity
             onPress={handleCamera}
-            className="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-3"
+            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
             activeOpacity={0.7}
           >
             <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-full bg-[#8CB369]/10 items-center justify-center">
-                <Ionicons name="camera-outline" size={24} color="#8CB369" />
+              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
+                <Ionicons name="camera-outline" size={24} color="#1D9E75" />
               </View>
               <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-gray-900">
+                <Text className="text-base font-semibold text-[#F5F5F5]">
                   Fotografar exame
                 </Text>
-                <Text className="text-sm text-gray-500 mt-0.5">
-                  Tira uma foto ao teu exame em papel
+                <Text className="text-sm text-[#555555] mt-0.5">
+                  Tira uma foto do seu exame e nós extraímos os dados
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
             </View>
           </TouchableOpacity>
 
-          {/* Document/file option */}
+          {/* Gallery option */}
           <TouchableOpacity
             onPress={handleDocument}
-            className="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-3"
+            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
             activeOpacity={0.7}
           >
             <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-full bg-[#8CB369]/10 items-center justify-center">
-                <Ionicons name="document-outline" size={24} color="#8CB369" />
+              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
+                <Ionicons name="images-outline" size={24} color="#1D9E75" />
               </View>
               <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-gray-900">
-                  Importar ficheiro
+                <Text className="text-base font-semibold text-[#F5F5F5]">
+                  Escolher da galeria
                 </Text>
-                <Text className="text-sm text-gray-500 mt-0.5">
-                  Seleciona uma foto ou PDF do exame
+                <Text className="text-sm text-[#555555] mt-0.5">
+                  Selecione uma imagem de exame existente
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
             </View>
           </TouchableOpacity>
 
           {/* Manual option */}
           <TouchableOpacity
             onPress={handleManual}
-            className="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-3"
+            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
             activeOpacity={0.7}
           >
             <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-full bg-[#8CB369]/10 items-center justify-center">
-                <Ionicons name="create-outline" size={24} color="#8CB369" />
+              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
+                <Ionicons name="create-outline" size={24} color="#1D9E75" />
               </View>
               <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-gray-900">
-                  Introduzir manualmente
+                <Text className="text-base font-semibold text-[#F5F5F5]">
+                  Inserir manualmente
                 </Text>
-                <Text className="text-sm text-gray-500 mt-0.5">
-                  Insere os valores do exame um a um
+                <Text className="text-sm text-[#555555] mt-0.5">
+                  Digite os valores dos biomarcadores
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
             </View>
           </TouchableOpacity>
 
-          {/* Info note */}
-          <View className="bg-blue-50 rounded-xl p-3 mt-4 border border-blue-100">
-            <View className="flex-row items-start">
-              <Ionicons
-                name="information-circle"
-                size={16}
-                color="#3B82F6"
-                style={{ marginTop: 1 }}
-              />
-              <Text className="text-xs text-blue-700 ml-2 flex-1 leading-4">
-                Ao fotografar ou importar, os valores são extraídos
-                automaticamente. Poderás sempre confirmar e editar antes de
-                guardar.
-              </Text>
-            </View>
-          </View>
+          {/* Bottom text — simple, no bg */}
+          <Text className="text-sm text-[#555555] text-center mt-8 px-4 leading-5">
+            Os seus dados são processados de forma segura e nunca são partilhados com terceiros.
+          </Text>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

@@ -3,8 +3,16 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "./useAuth";
 import { generateNarrative, generateQuestions } from "@/lib/ai";
 
-interface NarrativeContent {
-  narrative: string;
+export interface InsightCards {
+  insight: string;
+  positive: string;
+  family_note: string;
+}
+
+export interface FullAnalysis {
+  full_insight: string;
+  full_positive: string;
+  full_family: string;
 }
 
 interface QuestionsContent {
@@ -13,7 +21,8 @@ interface QuestionsContent {
 
 export function useGeneratedContent() {
   const { user } = useAuth();
-  const [narrative, setNarrative] = useState<string | null>(null);
+  const [cards, setCards] = useState<InsightCards | null>(null);
+  const [fullAnalysis, setFullAnalysis] = useState<FullAnalysis | null>(null);
   const [questions, setQuestions] = useState<
     Array<{ question: string; context: string }>
   >([]);
@@ -33,10 +42,24 @@ export function useGeneratedContent() {
       .limit(1)
       .single();
 
+    let needsRegeneration = false;
     if (narrativeData) {
-      setNarrative(
-        (narrativeData.content as unknown as NarrativeContent).narrative
-      );
+      const content = narrativeData.content as unknown as any;
+      if ('insight' in content) {
+        setCards({
+          insight: content.insight ?? '',
+          positive: content.positive ?? '',
+          family_note: content.family_note ?? '',
+        });
+        setFullAnalysis({
+          full_insight: content.full_insight ?? '',
+          full_positive: content.full_positive ?? '',
+          full_family: content.full_family ?? '',
+        });
+      } else {
+        // Old format — needs regeneration
+        needsRegeneration = true;
+      }
     }
 
     const { data: questionsData } = await supabase
@@ -55,10 +78,13 @@ export function useGeneratedContent() {
     }
 
     setLoading(false);
+    return needsRegeneration;
   }, [user]);
 
   useEffect(() => {
-    fetchCached();
+    fetchCached().then((needsRegen) => {
+      if (needsRegen) regenerate();
+    });
   }, [fetchCached]);
 
   const regenerate = async () => {
@@ -69,7 +95,16 @@ export function useGeneratedContent() {
         generateNarrative(user.id),
         generateQuestions(user.id),
       ]);
-      setNarrative(narrativeResult.narrative);
+      setCards({
+        insight: narrativeResult.insight,
+        positive: narrativeResult.positive,
+        family_note: narrativeResult.family_note,
+      });
+      setFullAnalysis({
+        full_insight: narrativeResult.full_insight,
+        full_positive: narrativeResult.full_positive,
+        full_family: narrativeResult.full_family,
+      });
       setQuestions(questionsResult.questions);
     } catch (e) {
       console.error("Error generating content:", e);
@@ -79,7 +114,8 @@ export function useGeneratedContent() {
   };
 
   return {
-    narrative,
+    cards,
+    fullAnalysis,
     questions,
     loading,
     generating,

@@ -8,7 +8,7 @@ interface SparklineProps {
   color?: string;
 }
 
-export function Sparkline({ data, width = 80, height = 30, color = '#8CB369' }: SparklineProps) {
+export function Sparkline({ data, width = 80, height = 30, color = '#1D9E75' }: SparklineProps) {
   if (data.length < 2) {
     return (
       <View style={{ width, height }} className="items-center justify-center">

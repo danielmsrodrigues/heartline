@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Keyboard, View, Text, Animated } from 'react-native';
+import { Keyboard, View, Text, Image, Animated } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import '@/global.css';
@@ -86,13 +87,16 @@ function HeartbeatSplash({ onFinish }: { onFinish: () => void }) {
   return (
     <Animated.View
       style={{ opacity }}
-      className="absolute inset-0 bg-white items-center justify-center z-50"
+      className="absolute inset-0 bg-[#0A0A0A] items-center justify-center z-50"
     >
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons name="heart" size={64} color="#8CB369" />
+        <Image
+          source={require('@/assets/images/logo.png')}
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain"
+        />
       </Animated.View>
-      <Text className="text-2xl font-bold text-gray-900 mt-4">Heartline</Text>
-      <Text className="text-sm text-gray-400 mt-1">
+      <Text className="text-sm text-[#555555] mt-4">
         O contexto completo da tua saúde
       </Text>
     </Animated.View>
@@ -105,6 +109,7 @@ export default function RootLayout() {
   const router = useRouter();
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const [hasSeenWelcome, setHasSeenWelcome] = useState<boolean | null>(null);
   const [showSplash, setShowSplash] = useState(true);
 
   const checkOnboarding = useCallback(async () => {
@@ -124,6 +129,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     checkOnboarding();
+    AsyncStorage.getItem('has_seen_welcome').then((v) => setHasSeenWelcome(v === 'true'));
   }, [checkOnboarding]);
 
   // Re-check when navigating between groups (catches onboarding completion)
@@ -134,7 +140,7 @@ export default function RootLayout() {
   }, [segments[0]]);
 
   useEffect(() => {
-    if (loading || !onboardingChecked || showSplash) return;
+    if (loading || !onboardingChecked || showSplash || hasSeenWelcome === null) return;
 
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboardingGroup = segments[0] === '(onboarding)';
@@ -144,11 +150,15 @@ export default function RootLayout() {
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
       Keyboard.dismiss();
-      if (onboardingCompleted) {
+      if (!hasSeenWelcome) {
+        router.replace('/(auth)/welcome' as any);
+      } else if (onboardingCompleted) {
         router.replace('/(tabs)');
       } else {
         router.replace('/(onboarding)/profile');
       }
+    } else if (session && !hasSeenWelcome && !inAuthGroup) {
+      router.replace('/(auth)/welcome' as any);
     } else if (
       session &&
       !onboardingCompleted &&
@@ -159,7 +169,16 @@ export default function RootLayout() {
     } else if (session && onboardingCompleted && inOnboardingGroup) {
       router.replace('/(tabs)');
     }
-  }, [session, loading, onboardingChecked, onboardingCompleted, segments, showSplash]);
+  }, [session, loading, onboardingChecked, onboardingCompleted, segments, showSplash, hasSeenWelcome]);
+
+  // Update hasSeenWelcome when navigating away from welcome
+  useEffect(() => {
+    if (hasSeenWelcome === false) {
+      AsyncStorage.getItem('has_seen_welcome').then((v) => {
+        if (v === 'true') setHasSeenWelcome(true);
+      });
+    }
+  }, [segments]);
 
   useEffect(() => {
     if (!loading && onboardingChecked) {
@@ -169,18 +188,51 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(onboarding)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="confirm-values"
-          options={{ presentation: 'card', gestureEnabled: true }}
+          options={{
+            presentation: 'card',
+            gestureEnabled: true,
+            headerShown: true,
+            title: 'Confirmar valores',
+            headerBackButtonDisplayMode: 'minimal',
+            headerStyle: { backgroundColor: '#0A0A0A' },
+            headerTintColor: '#F5F5F5',
+            headerTitleStyle: { color: '#F5F5F5', fontWeight: '600' },
+            headerShadowVisible: false,
+          }}
         />
         <Stack.Screen
           name="biomarker/[id]"
-          options={{ presentation: 'card', gestureEnabled: true }}
+          options={{
+            presentation: 'card',
+            gestureEnabled: true,
+            headerShown: true,
+            title: '',
+            headerBackButtonDisplayMode: 'minimal',
+            headerStyle: { backgroundColor: '#0A0A0A' },
+            headerTintColor: '#F5F5F5',
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="analysis"
+          options={{
+            presentation: 'card',
+            gestureEnabled: true,
+            headerShown: true,
+            title: 'Análise completa',
+            headerBackButtonDisplayMode: 'minimal',
+            headerStyle: { backgroundColor: '#0A0A0A' },
+            headerTintColor: '#F5F5F5',
+            headerTitleStyle: { color: '#F5F5F5', fontWeight: '600' },
+            headerShadowVisible: false,
+          }}
         />
         <Stack.Screen
           name="reset-password"

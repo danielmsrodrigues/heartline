@@ -170,35 +170,26 @@ export default function ConfirmValuesScreen() {
   ).length;
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
       <ScrollView
         contentContainerStyle={{ paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
       >
         <View className="px-6 pt-6">
-          {/* Header */}
-          <View className="flex-row items-center mb-2">
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#111827" />
-            </TouchableOpacity>
-            <Text className="text-2xl font-bold text-gray-900 ml-3">
-              Confirmar valores
-            </Text>
-          </View>
-          <Text className="text-sm text-gray-500 mb-4">
+          <Text className="text-sm text-[#555555] mb-4">
             Verifica os valores extraídos e corrige se necessário.
           </Text>
 
           {/* Low confidence warning */}
           {lowConfidenceCount > 0 && (
-            <View className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+            <View className="bg-[#EF9F27]/10 border border-[#EF9F27]/30 rounded-xl p-3 mb-4">
               <View className="flex-row items-center">
                 <Ionicons
                   name="alert-circle-outline"
                   size={16}
-                  color="#B8860B"
+                  color="#EF9F27"
                 />
-                <Text className="text-xs text-amber-800 ml-1.5 flex-1">
+                <Text className="text-xs text-[#EF9F27] ml-1.5 flex-1">
                   {lowConfidenceCount} valor(es) com menor confiança — destacados
                   a amarelo. Verifica com atenção.
                 </Text>
@@ -208,12 +199,12 @@ export default function ConfirmValuesScreen() {
 
           {/* Original image preview */}
           {imageUri && (
-            <View className="mb-4 rounded-xl overflow-hidden border border-gray-200">
+            <View className="mb-4 rounded-xl overflow-hidden border border-[#151515]">
               <Image
                 source={{ uri: imageUri }}
                 style={{ width: '100%', height: 200 }}
                 resizeMode="contain"
-                className="bg-gray-100"
+                className="bg-[#111111]"
               />
             </View>
           )}
@@ -234,7 +225,7 @@ export default function ConfirmValuesScreen() {
           />
 
           {/* Extracted values */}
-          <Text className="text-base font-semibold text-gray-900 mt-2 mb-3">
+          <Text className="text-base font-semibold text-[#F5F5F5] mt-2 mb-3">
             Valores extraídos ({markers.length})
           </Text>
 
@@ -255,14 +246,14 @@ export default function ConfirmValuesScreen() {
           </View>
 
           {/* Disclaimer */}
-          <View className="mt-4 flex-row items-start bg-blue-50 rounded-xl p-3 border border-blue-100">
+          <View className="mt-4 flex-row items-start bg-[#4A90D9]/10 rounded-xl p-3 border border-[#4A90D9]/20">
             <Ionicons
               name="information-circle"
               size={16}
-              color="#3B82F6"
+              color="#4A90D9"
               style={{ marginTop: 1 }}
             />
-            <Text className="text-xs text-blue-700 ml-2 flex-1 leading-4">
+            <Text className="text-xs text-[#4A90D9] ml-2 flex-1 leading-4">
               Os valores são extraídos automaticamente e podem conter erros.
               Confirma sempre com o documento original.
             </Text>

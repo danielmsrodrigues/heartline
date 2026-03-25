@@ -1,124 +1,141 @@
 import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Dimensions, TouchableOpacity, Alert, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import Svg, { Rect, Line, Circle, Text as SvgText, Polyline, G } from 'react-native-svg';
-import { supabase } from '@/lib/supabase';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { AlertCircle, Heart, MessageSquare } from 'lucide-react-native';
+import Svg, { Path, Line, Circle as SvgCircle, Text as SvgText, G, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useBiomarkers, BiomarkerWithScoring } from '@/hooks/useBiomarkers';
 import { useProfile } from '@/hooks/useProfile';
 import { AttentionBadge } from '@/components/attention-badge';
 import { Card } from '@/components/ui/Card';
-import {
-  ATTENTION_COLORS,
-  ATTENTION_LABELS,
-  TREND_LABELS,
-} from '@/constants/colors';
+import { ATTENTION_COLORS } from '@/constants/colors';
+import { Skeleton, SkeletonDetailCard } from '@/components/ui/Skeleton';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const CHART_PADDING = { top: 20, right: 20, bottom: 40, left: 50 };
-const CHART_WIDTH = SCREEN_WIDTH - 32 - 8; // screen padding + card padding
-const CHART_HEIGHT = 200;
-const PLOT_WIDTH = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right;
-const PLOT_HEIGHT = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom;
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const day = d.getDate().toString().padStart(2, '0');
-  const month = (d.getMonth() + 1).toString().padStart(2, '0');
-  const year = d.getFullYear().toString().slice(-2);
-  return `${day}/${month}/${year}`;
-}
 
 function RangeBar({
   value,
   refMin,
   refMax,
-  attentionLevel,
+  rangeType,
+  status,
 }: {
   value: number;
   refMin: number | null;
   refMax: number | null;
-  attentionLevel: string;
+  rangeType: string;
+  status: string;
 }) {
-  const barWidth = SCREEN_WIDTH - 64;
-  const min = refMin ?? 0;
-  const max = refMax ?? value * 1.5;
-  const range = max - min || 1;
+  const statusColors: Record<string, string> = {
+    dentro_do_esperado: '#1D9E75',
+    a_acompanhar: '#EF9F27',
+    merece_atencao: '#EF9F27',
+    fora_do_range: '#E24B4A',
+  };
 
-  // Compute visual range with some buffer
-  const displayMin = min - range * 0.15;
-  const displayMax = max + range * 0.15;
-  const displayRange = displayMax - displayMin;
+  const markerColor = statusColors[status] ?? '#EF9F27';
 
-  const rangeStartPct = ((min - displayMin) / displayRange) * 100;
-  const rangeWidthPct = ((max - min) / displayRange) * 100;
-  const valuePct = Math.max(
-    0,
-    Math.min(100, ((value - displayMin) / displayRange) * 100)
-  );
+  const segments: { flex: number; color: string }[] = [];
+  let valuePct = 50;
+  let tickMarks: { pct: number; label: string }[] = [];
 
-  const markerColor =
-    ATTENTION_COLORS[attentionLevel as keyof typeof ATTENTION_COLORS]?.border ??
-    '#8CB369';
+  if (rangeType === 'bounded') {
+    const min = refMin!;
+    const max = refMax!;
+    const barStart = min * 0.7;
+    const barEnd = max * 1.4;
+    const barRange = barEnd - barStart || 1;
+    const refMinPct = ((min - barStart) / barRange) * 100;
+    const refMaxPct = ((max - barStart) / barRange) * 100;
+    const abovePct = 100 - refMaxPct;
+
+    segments.push({ flex: refMinPct, color: 'rgba(245,199,35,0.3)' });
+    segments.push({ flex: refMaxPct - refMinPct, color: 'rgba(140,179,105,0.35)' });
+    segments.push({ flex: abovePct * 0.4, color: 'rgba(245,199,35,0.35)' });
+    segments.push({ flex: abovePct * 0.3, color: 'rgba(232,130,58,0.4)' });
+    segments.push({ flex: abovePct * 0.3, color: 'rgba(217,83,79,0.4)' });
+
+    valuePct = Math.max(2, Math.min(98, ((value - barStart) / barRange) * 100));
+    tickMarks = [
+      { pct: refMinPct, label: String(min) },
+      { pct: refMaxPct, label: String(max) },
+    ];
+  } else if (rangeType === 'max_only') {
+    const max = refMax!;
+    const barEnd = max * 1.4;
+    const barRange = barEnd || 1;
+    const refMaxPct = (max / barRange) * 100;
+    const abovePct = 100 - refMaxPct;
+
+    segments.push({ flex: refMaxPct, color: 'rgba(140,179,105,0.35)' });
+    segments.push({ flex: abovePct * 0.4, color: 'rgba(245,199,35,0.35)' });
+    segments.push({ flex: abovePct * 0.3, color: 'rgba(232,130,58,0.4)' });
+    segments.push({ flex: abovePct * 0.3, color: 'rgba(217,83,79,0.4)' });
+
+    valuePct = Math.max(2, Math.min(98, (value / barRange) * 100));
+    tickMarks = [{ pct: refMaxPct, label: String(max) }];
+  } else if (rangeType === 'min_only') {
+    const min = refMin!;
+    const barEnd = min * 2;
+    const barRange = barEnd || 1;
+    const refMinPct = (min / barRange) * 100;
+
+    segments.push({ flex: refMinPct * 0.3, color: 'rgba(217,83,79,0.4)' });
+    segments.push({ flex: refMinPct * 0.3, color: 'rgba(232,130,58,0.4)' });
+    segments.push({ flex: refMinPct * 0.4, color: 'rgba(245,199,35,0.35)' });
+    segments.push({ flex: 100 - refMinPct, color: 'rgba(140,179,105,0.35)' });
+
+    valuePct = Math.max(2, Math.min(98, (value / barRange) * 100));
+    tickMarks = [{ pct: refMinPct, label: String(min) }];
+  } else {
+    // none
+    segments.push({ flex: 1, color: 'rgba(107,114,128,0.3)' });
+    valuePct = 50;
+  }
 
   return (
-    <View className="mt-3">
-      <View style={{ width: barWidth, height: 32 }}>
-        {/* Background bar */}
-        <View
-          className="absolute rounded-full bg-red-100"
-          style={{ top: 10, left: 0, right: 0, height: 12 }}
-        />
-        {/* Range bar (green) */}
-        <View
-          className="absolute rounded-full bg-green-200"
-          style={{
-            top: 10,
-            left: `${rangeStartPct}%`,
-            width: `${rangeWidthPct}%`,
-            height: 12,
-          }}
-        />
-        {/* Value marker */}
-        <View
-          style={{
-            position: 'absolute',
-            left: `${valuePct}%`,
-            top: 2,
-            marginLeft: -8,
-          }}
-        >
-          <View
-            style={{
-              width: 0,
-              height: 0,
-              borderLeftWidth: 8,
-              borderRightWidth: 8,
-              borderTopWidth: 10,
-              borderLeftColor: 'transparent',
-              borderRightColor: 'transparent',
-              borderTopColor: markerColor,
-            }}
-          />
-          <View
-            style={{
-              width: 3,
-              height: 16,
-              backgroundColor: markerColor,
-              marginLeft: 5.5,
-            }}
-          />
-        </View>
+    <View style={{ marginTop: 16 }}>
+      {/* Bar */}
+      <View style={{ height: 12, borderRadius: 6, overflow: 'hidden', flexDirection: 'row' }}>
+        {segments.map((seg, i) => (
+          <View key={i} style={{ flex: seg.flex, backgroundColor: seg.color }} />
+        ))}
       </View>
-      {/* Labels */}
-      <View className="flex-row justify-between mt-1">
-        <Text className="text-xs text-gray-400">
-          {refMin != null ? refMin : '—'}
-        </Text>
-        <Text className="text-xs text-gray-400">
-          {refMax != null ? refMax : '—'}
-        </Text>
+
+      {/* Ref markers */}
+      <View style={{ position: 'relative', height: 16, marginTop: 2 }}>
+        {tickMarks.map((tick, i) => (
+          <Text key={i} style={{ position: 'absolute', left: `${tick.pct}%`, marginLeft: -10, fontSize: 11, color: '#555555' }}>
+            {tick.label}
+          </Text>
+        ))}
+      </View>
+
+      {/* Indicator */}
+      <View style={{ position: 'absolute', left: `${valuePct}%`, top: -2, marginLeft: -8 }}>
+        <View
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: 8,
+            backgroundColor: markerColor,
+            borderWidth: 2,
+            borderColor: '#0A0A0A',
+          }}
+        />
+      </View>
+
+      {/* Legend */}
+      <View className="flex-row flex-wrap mt-2" style={{ gap: 12 }}>
+        {[
+          { label: 'Esperado', color: 'rgba(140,179,105,0.5)' },
+          { label: 'Limite', color: 'rgba(245,199,35,0.5)' },
+          { label: 'Fora do range', color: 'rgba(217,83,79,0.5)' },
+        ].map((item) => (
+          <View key={item.label} className="flex-row items-center" style={{ gap: 5 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }} />
+            <Text className="text-xs text-[#555555]">{item.label}</Text>
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -126,144 +143,79 @@ function RangeBar({
 
 function EvolutionChart({
   readings,
-  refMin,
-  refMax,
-  unit,
-  color,
+  status,
 }: {
   readings: { value: number; date: string }[];
-  refMin: number | null;
-  refMax: number | null;
-  unit: string;
-  color: string;
+  status: string;
 }) {
-  if (readings.length === 0) return null;
+  if (readings.length < 2) return null;
 
-  const values = readings.map((r) => r.value);
-  const allValues = [
-    ...values,
-    ...(refMin != null ? [refMin] : []),
-    ...(refMax != null ? [refMax] : []),
-  ];
-  const dataMin = Math.min(...allValues) * 0.9;
-  const dataMax = Math.max(...allValues) * 1.1;
-  const dataRange = dataMax - dataMin || 1;
+  const statusColors: Record<string, string> = {
+    dentro_do_esperado: '#1D9E75',
+    a_acompanhar: '#EF9F27',
+    merece_atencao: '#EF9F27',
+    fora_do_range: '#E24B4A',
+  };
 
-  const toY = (val: number) =>
-    CHART_PADDING.top +
-    PLOT_HEIGHT -
-    ((val - dataMin) / dataRange) * PLOT_HEIGHT;
+  const color = statusColors[status] ?? '#EF9F27';
+  const width = SCREEN_WIDTH - 80;
+  const height = 140;
+  const padding = { top: 30, right: 20, bottom: 30, left: 20 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
 
-  const toX = (index: number) =>
-    CHART_PADDING.left +
-    (readings.length === 1
-      ? PLOT_WIDTH / 2
-      : (index / (readings.length - 1)) * PLOT_WIDTH);
+  const values = readings.map(r => r.value);
+  const min = Math.min(...values) - 10;
+  const max = Math.max(...values) + 10;
+  const range = max - min;
 
-  // Reference range shading
-  const refMinY = refMin != null ? toY(refMin) : null;
-  const refMaxY = refMax != null ? toY(refMax) : null;
+  const points = readings.map((r, i) => ({
+    x: padding.left + (i / (readings.length - 1)) * plotW,
+    y: padding.top + plotH - ((r.value - min) / range) * plotH,
+    value: r.value,
+    date: r.date,
+  }));
 
-  // Points for polyline
-  const polylinePoints = readings
-    .map((_, i) => `${toX(i)},${toY(readings[i].value)}`)
-    .join(' ');
+  const linePath = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+  const areaPath = `${linePath} L ${points[points.length - 1].x} ${padding.top + plotH} L ${points[0].x} ${padding.top + plotH} Z`;
 
-  // Y-axis ticks (3-5 values)
-  const yTickCount = 4;
-  const yTicks = Array.from({ length: yTickCount }, (_, i) => {
-    const val = dataMin + (dataRange * i) / (yTickCount - 1);
-    return { value: Math.round(val * 10) / 10, y: toY(val) };
-  });
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    const year = d.getFullYear().toString().slice(-2);
+    return `${month}/${year}`;
+  };
 
   return (
-    <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
-      {/* Reference range shading */}
-      {refMinY != null && refMaxY != null && (
-        <Rect
-          x={CHART_PADDING.left}
-          y={refMaxY}
-          width={PLOT_WIDTH}
-          height={refMinY - refMaxY}
-          fill="#8CB369"
-          opacity={0.1}
-        />
-      )}
-
-      {/* Reference lines */}
-      {refMinY != null && (
+    <Svg width={width} height={height}>
+      {/* Grid lines */}
+      {[0, 1, 2, 3].map((i) => (
         <Line
-          x1={CHART_PADDING.left}
-          y1={refMinY}
-          x2={CHART_PADDING.left + PLOT_WIDTH}
-          y2={refMinY}
-          stroke="#8CB369"
-          strokeWidth={1}
+          key={i}
+          x1={padding.left}
+          y1={padding.top + (i * plotH) / 3}
+          x2={padding.left + plotW}
+          y2={padding.top + (i * plotH) / 3}
+          stroke="#151515"
           strokeDasharray="4,4"
-          opacity={0.5}
         />
-      )}
-      {refMaxY != null && (
-        <Line
-          x1={CHART_PADDING.left}
-          y1={refMaxY}
-          x2={CHART_PADDING.left + PLOT_WIDTH}
-          y2={refMaxY}
-          stroke="#8CB369"
-          strokeWidth={1}
-          strokeDasharray="4,4"
-          opacity={0.5}
-        />
-      )}
-
-      {/* Y-axis ticks */}
-      {yTicks.map((tick, i) => (
-        <G key={i}>
-          <Line
-            x1={CHART_PADDING.left}
-            y1={tick.y}
-            x2={CHART_PADDING.left + PLOT_WIDTH}
-            y2={tick.y}
-            stroke="#E5E7EB"
-            strokeWidth={0.5}
-          />
-          <SvgText
-            x={CHART_PADDING.left - 8}
-            y={tick.y + 4}
-            textAnchor="end"
-            fill="#9CA3AF"
-            fontSize={10}
-          >
-            {tick.value}
-          </SvgText>
-        </G>
       ))}
 
-      {/* Data line */}
-      {readings.length > 1 && (
-        <Polyline
-          points={polylinePoints}
-          fill="none"
-          stroke={color}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
+      {/* Area fill */}
+      <Path d={areaPath} fill={color} opacity={0.08} />
 
-      {/* Data points + date labels */}
-      {readings.map((r, i) => (
+      {/* Line */}
+      <Path d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+      {/* Points + labels */}
+      {points.map((p, i) => (
         <G key={i}>
-          <Circle cx={toX(i)} cy={toY(r.value)} r={4} fill={color} />
-          <Circle cx={toX(i)} cy={toY(r.value)} r={2} fill="white" />
-          <SvgText
-            x={toX(i)}
-            y={CHART_HEIGHT - 5}
-            textAnchor="middle"
-            fill="#9CA3AF"
-            fontSize={9}
-          >
-            {formatDate(r.date)}
+          <SvgCircle cx={p.x} cy={p.y} r={6} fill="#0A0A0A" stroke={color} strokeWidth={2} />
+          <SvgText x={p.x} y={p.y - 14} textAnchor="middle" fill="#F5F5F5" fontSize={12} fontWeight="500">
+            {p.value}
+          </SvgText>
+          <SvgText x={p.x} y={height - 4} textAnchor="middle" fill="#555555" fontSize={11}>
+            {formatDate(p.date)}
           </SvgText>
         </G>
       ))}
@@ -275,68 +227,57 @@ export default function BiomarkerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { familyHistory } = useProfile();
-  const { biomarkers, refetch: refetchBio } = useBiomarkers(familyHistory.length > 0);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-
-  const handleDeleteReading = (readingId: string, date: string) => {
-    Alert.alert(
-      'Apagar valor',
-      `Apagar o registo de ${formatDate(date)}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase.from('biomarkers').delete().eq('id', readingId);
-            refetchBio();
-          },
-        },
-      ]
-    );
-  };
-
-  const handleStartEdit = (readingId: string, currentValue: number) => {
-    setEditingId(readingId);
-    setEditValue(currentValue.toString());
-  };
-
-  const handleSaveEdit = async (readingId: string) => {
-    const newValue = parseFloat(editValue);
-    if (isNaN(newValue)) {
-      Alert.alert('Valor inválido', 'Introduz um número válido.');
-      return;
-    }
-    await supabase.from('biomarkers').update({ value: newValue }).eq('id', readingId);
-    setEditingId(null);
-    refetchBio();
-  };
+  const { biomarkers, loading: bioLoading } = useBiomarkers(familyHistory.length > 0);
 
   const biomarker = useMemo(
     () => biomarkers.find((b) => b.name_normalized === id),
     [biomarkers, id]
   );
 
-  const cardiovascularMarkers = [
-    'ldl',
-    'hdl',
-    'total_cholesterol',
-    'triglycerides',
-    'glucose',
-    'hba1c',
-    'crp',
-  ];
+  const cardiovascularMarkers = ['ldl', 'hdl', 'total_cholesterol', 'triglycerides', 'glucose', 'hba1c', 'crp'];
 
-  const color = biomarker
-    ? ATTENTION_COLORS[biomarker.attentionLevel].border
-    : '#8CB369';
-  const trendLabel = biomarker ? TREND_LABELS[biomarker.trend] : '';
   const hasFamilyHistory = familyHistory.length > 0;
   const isFamilyRelevant = biomarker
-    ? hasFamilyHistory &&
-      cardiovascularMarkers.includes(biomarker.name_normalized)
+    ? hasFamilyHistory && cardiovascularMarkers.includes(biomarker.name_normalized)
     : false;
+
+  // Explain WHY the attention level is what it is
+  const attentionReason = useMemo(() => {
+    if (!biomarker) return null;
+    const { attentionLevel, severity, proximity, trend } = biomarker;
+
+    const refMax = biomarker.ref_max;
+    const refMin = biomarker.ref_min;
+    const val = biomarker.latestValue;
+    const aboveMax = refMax != null && val > refMax;
+    const belowMin = refMin != null && refMin > 0 && val < refMin;
+
+    switch (attentionLevel) {
+      case 'dentro_do_esperado':
+        return 'Dentro do range de referência';
+      case 'a_acompanhar':
+        if (aboveMax) return `${val} ligeiramente acima de ${refMax}`;
+        if (belowMin) return `${val} ligeiramente abaixo de ${refMin}`;
+        if (trend === 'a_subir') return 'Tendência de subida';
+        if (proximity > 0.66) return 'Valor perto do limite';
+        return 'Valor a acompanhar';
+      case 'merece_atencao':
+        if (aboveMax) return `${val} acima de ${refMax}`;
+        if (belowMin) return `${val} abaixo de ${refMin}`;
+        if (isFamilyRelevant && trend === 'a_subir') return 'A subir + histórico familiar';
+        if (isFamilyRelevant && proximity > 0.66) return 'Perto do limite + histórico familiar';
+        if (isFamilyRelevant) return 'Histórico familiar relevante';
+        if (trend === 'a_subir') return 'Tendência de subida';
+        if (proximity > 0.66) return 'Valor perto do limite';
+        return 'Merece acompanhamento';
+      case 'fora_do_range':
+        if (aboveMax) return `${val} bem acima de ${refMax}`;
+        if (belowMin) return `${val} bem abaixo de ${refMin}`;
+        return 'Fora do range de referência';
+      default:
+        return null;
+    }
+  }, [biomarker, isFamilyRelevant]);
 
   const suggestedQuestion = useMemo(() => {
     if (!biomarker) return null;
@@ -356,248 +297,207 @@ export default function BiomarkerDetailScreen() {
     return null;
   }, [biomarker]);
 
-  if (!biomarker) {
+  const descriptions: Record<string, string> = {
+    ldl: "O LDL (colesterol 'mau') transporta colesterol para as artérias. Valores elevados merecem acompanhamento, especialmente com histórico familiar.",
+    hdl: "O HDL (colesterol 'bom') remove o colesterol das artérias. Valores acima de 60 mg/dL são considerados protectores. O exercício físico ajuda a elevar o HDL.",
+    triglycerides: "Os triglicéridos são um tipo de gordura no sangue. Valores elevados, especialmente combinados com HDL baixo, merecem acompanhamento.",
+    glucose: "A glicose em jejum indica como o corpo processa o açúcar. Valores entre 100-125 mg/dL indicam pré-diabetes. Manter valores abaixo de 100 é ideal.",
+    total_cholesterol: "O colesterol total é a soma de LDL, HDL e outros componentes lipídicos. Um valor elevado pode indicar necessidade de análise mais detalhada do perfil lipídico.",
+    hba1c: "A hemoglobina glicada (HbA1c) reflecte a média de glicose nos últimos 2-3 meses. É um indicador importante do controlo metabólico.",
+    crp: "A proteína C-reactiva (PCR) é um marcador de inflamação. Valores elevados podem indicar inflamação no organismo, incluindo nos vasos sanguíneos.",
+    hemoglobin: "A hemoglobina transporta oxigénio no sangue. Valores baixos podem indicar anemia, enquanto valores altos podem sugerir desidratação ou outras condições.",
+    hemoglobina: "A hemoglobina transporta oxigénio no sangue. Valores baixos podem indicar anemia, enquanto valores altos podem sugerir desidratação ou outras condições.",
+    hematocrit: "O hematócrito representa a percentagem de glóbulos vermelhos no sangue. Alterações podem indicar anemia, desidratação ou outras condições.",
+    hematocrito: "O hematócrito representa a percentagem de glóbulos vermelhos no sangue. Alterações podem indicar anemia, desidratação ou outras condições.",
+    platelets: "As plaquetas são essenciais para a coagulação do sangue. Valores alterados podem afectar a capacidade de coagulação.",
+    plaquetas: "As plaquetas são essenciais para a coagulação do sangue. Valores alterados podem afectar a capacidade de coagulação.",
+    white_blood_cells: "Os glóbulos brancos (leucócitos) fazem parte do sistema imunitário. Valores elevados podem indicar infecção ou inflamação.",
+    leucocitos: "Os glóbulos brancos (leucócitos) fazem parte do sistema imunitário. Valores elevados podem indicar infecção ou inflamação.",
+    red_blood_cells: "Os glóbulos vermelhos (eritrócitos) transportam oxigénio. Alterações podem indicar anemia ou outras condições hematológicas.",
+    eritrocitos: "Os glóbulos vermelhos (eritrócitos) transportam oxigénio. Alterações podem indicar anemia ou outras condições hematológicas.",
+    urea: "A ureia é um produto do metabolismo das proteínas, eliminado pelos rins. Valores elevados podem sugerir alterações na função renal.",
+    ureia: "A ureia é um produto do metabolismo das proteínas, eliminado pelos rins. Valores elevados podem sugerir alterações na função renal.",
+    creatinine: "A creatinina é um indicador da função renal. Valores elevados podem sugerir que os rins não estão a filtrar eficazmente.",
+    creatinina: "A creatinina é um indicador da função renal. Valores elevados podem sugerir que os rins não estão a filtrar eficazmente.",
+    uric_acid: "O ácido úrico é um produto do metabolismo das purinas. Valores elevados podem estar associados a gota e merecem acompanhamento cardiovascular.",
+    acido_urico: "O ácido úrico é um produto do metabolismo das purinas. Valores elevados podem estar associados a gota e merecem acompanhamento cardiovascular.",
+    iron: "O ferro é essencial para a produção de hemoglobina. Valores baixos podem causar anemia, enquanto valores altos podem indicar sobrecarga de ferro.",
+    ferro: "O ferro é essencial para a produção de hemoglobina. Valores baixos podem causar anemia, enquanto valores altos podem indicar sobrecarga de ferro.",
+    ferritin: "A ferritina reflecte as reservas de ferro no organismo. Valores baixos indicam esgotamento das reservas, valores altos podem indicar inflamação ou sobrecarga.",
+    ferritina: "A ferritina reflecte as reservas de ferro no organismo. Valores baixos indicam esgotamento das reservas, valores altos podem indicar inflamação ou sobrecarga.",
+    alt: "A ALT (alanina aminotransferase) é uma enzima hepática. Valores elevados podem indicar lesão ou inflamação do fígado.",
+    ast: "A AST (aspartato aminotransferase) é uma enzima presente no fígado e coração. Valores elevados podem indicar lesão destes órgãos.",
+    ggt: "A GGT (gama-glutamil transferase) é uma enzima hepática. Valores elevados podem estar associados a doenças do fígado ou consumo excessivo de álcool.",
+    tsh: "A TSH (hormona estimulante da tiróide) regula a função tiroideia. Valores alterados podem indicar hipotiroidismo ou hipertiroidismo.",
+    t3: "A T3 (triiodotironina) é uma hormona tiroideia activa. Alterações podem indicar disfunção da tiróide.",
+    triiodotironina: "A T3 (triiodotironina) é uma hormona tiroideia activa. Alterações podem indicar disfunção da tiróide.",
+    t4: "A T4 (tiroxina) é a principal hormona produzida pela tiróide. Valores alterados ajudam a diagnosticar disfunções tiroideias.",
+    tiroxina: "A T4 (tiroxina) é a principal hormona produzida pela tiróide. Valores alterados ajudam a diagnosticar disfunções tiroideias.",
+    vitamin_d: "A vitamina D é importante para ossos, sistema imunitário e saúde cardiovascular. Deficiência é comum e pode afectar múltiplos sistemas.",
+    vitamina_d: "A vitamina D é importante para ossos, sistema imunitário e saúde cardiovascular. Deficiência é comum e pode afectar múltiplos sistemas.",
+    vitamin_b12: "A vitamina B12 é essencial para o sistema nervoso e produção de glóbulos vermelhos. Deficiência pode causar anemia e sintomas neurológicos.",
+    vitamina_b12: "A vitamina B12 é essencial para o sistema nervoso e produção de glóbulos vermelhos. Deficiência pode causar anemia e sintomas neurológicos.",
+    folic_acid: "O ácido fólico é essencial para a produção de células sanguíneas e o metabolismo. Deficiência pode causar anemia megaloblástica.",
+    acido_folico: "O ácido fólico é essencial para a produção de células sanguíneas e o metabolismo. Deficiência pode causar anemia megaloblástica.",
+    sodium: "O sódio é um electrólito essencial para o equilíbrio de fluidos e função nervosa. Alterações podem afectar a pressão arterial e função cardíaca.",
+    sodio: "O sódio é um electrólito essencial para o equilíbrio de fluidos e função nervosa. Alterações podem afectar a pressão arterial e função cardíaca.",
+    potassium: "O potássio é crucial para a função cardíaca e muscular. Valores muito altos ou baixos podem ser perigosos para o coração.",
+    potassio: "O potássio é crucial para a função cardíaca e muscular. Valores muito altos ou baixos podem ser perigosos para o coração.",
+    calcium: "O cálcio é importante para ossos, músculos e coração. Alterações podem indicar problemas na paratiróide, rins ou metabolismo ósseo.",
+    calcio: "O cálcio é importante para ossos, músculos e coração. Alterações podem indicar problemas na paratiróide, rins ou metabolismo ósseo.",
+    psa: "O PSA (antigénio específico da próstata) é usado no rastreio de doenças da próstata. Valores elevados justificam avaliação médica.",
+    insulin: "A insulina regula os níveis de açúcar no sangue. Valores elevados em jejum podem indicar resistência à insulina.",
+    insulina: "A insulina regula os níveis de açúcar no sangue. Valores elevados em jejum podem indicar resistência à insulina.",
+    mcv: "O VGM (volume globular médio) indica o tamanho dos glóbulos vermelhos. Alterações ajudam a classificar tipos de anemia.",
+    vgm: "O VGM (volume globular médio) indica o tamanho dos glóbulos vermelhos. Alterações ajudam a classificar tipos de anemia.",
+    mch: "A HGM (hemoglobina globular média) indica a quantidade de hemoglobina por glóbulo vermelho. Alterações ajudam a classificar anemias.",
+    hgm: "A HGM (hemoglobina globular média) indica a quantidade de hemoglobina por glóbulo vermelho. Alterações ajudam a classificar anemias.",
+    mchc: "A CHGM (concentração de hemoglobina globular média) indica a concentração de hemoglobina nos glóbulos vermelhos.",
+    chgm: "A CHGM (concentração de hemoglobina globular média) indica a concentração de hemoglobina nos glóbulos vermelhos.",
+    albumin: "A albumina é a principal proteína do sangue, produzida pelo fígado. Valores baixos podem indicar problemas hepáticos ou nutricionais.",
+    albumina: "A albumina é a principal proteína do sangue, produzida pelo fígado. Valores baixos podem indicar problemas hepáticos ou nutricionais.",
+    total_protein: "As proteínas totais no sangue incluem albumina e globulinas. Alterações podem indicar problemas hepáticos, renais ou imunológicos.",
+    proteinas_totais: "As proteínas totais no sangue incluem albumina e globulinas. Alterações podem indicar problemas hepáticos, renais ou imunológicos.",
+    bilirubin: "A bilirrubina é um produto da degradação dos glóbulos vermelhos. Valores elevados podem indicar problemas no fígado ou vias biliares.",
+    bilirrubina: "A bilirrubina é um produto da degradação dos glóbulos vermelhos. Valores elevados podem indicar problemas no fígado ou vias biliares.",
+    magnesium: "O magnésio é essencial para músculos, nervos e coração. Deficiência pode causar cãibras, fadiga e arritmias.",
+    magnesio: "O magnésio é essencial para músculos, nervos e coração. Deficiência pode causar cãibras, fadiga e arritmias.",
+    phosphorus: "O fósforo trabalha com o cálcio na saúde óssea e é importante para o metabolismo energético.",
+    fosforo: "O fósforo trabalha com o cálcio na saúde óssea e é importante para o metabolismo energético.",
+    alkaline_phosphatase: "A fosfatase alcalina é uma enzima presente nos ossos e fígado. Valores elevados podem indicar doenças ósseas ou hepáticas.",
+    fosfatase_alcalina: "A fosfatase alcalina é uma enzima presente nos ossos e fígado. Valores elevados podem indicar doenças ósseas ou hepáticas.",
+    ldh: "A LDH (lactato desidrogenase) é uma enzima presente em vários tecidos. Valores elevados podem indicar dano celular em diversos órgãos.",
+    fibrinogen: "O fibrinogénio é uma proteína essencial para a coagulação. Valores elevados podem indicar inflamação e merecem avaliação.",
+    fibrinogenio: "O fibrinogénio é uma proteína essencial para a coagulação. Valores elevados podem indicar inflamação e merecem avaliação.",
+  };
+
+  if (bioLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-white">
-        <View className="flex-1 items-center justify-center px-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="absolute top-16 left-6"
-          >
-            <Ionicons name="arrow-back" size={24} color="#111827" />
-          </TouchableOpacity>
-          <Ionicons name="flask-outline" size={48} color="#D1D5DB" />
-          <Text className="text-base text-gray-500 mt-3">
-            Biomarcador não encontrado
-          </Text>
-        </View>
-      </SafeAreaView>
+      <View className="flex-1 bg-[#0A0A0A]">
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 }}>
+          <SkeletonDetailCard />
+          <Card className="p-5 mb-5">
+            <Skeleton width={80} height={16} style={{ marginBottom: 16 }} />
+            <Skeleton width="100%" height={140} borderRadius={8} />
+          </Card>
+          <Card className="p-5 mb-5">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <Skeleton width={32} height={32} borderRadius={16} />
+              <Skeleton width={120} height={16} />
+            </View>
+            <Skeleton width="95%" height={14} style={{ marginBottom: 8 }} />
+            <Skeleton width="80%" height={14} style={{ marginBottom: 8 }} />
+            <Skeleton width="60%" height={14} />
+          </Card>
+        </ScrollView>
+      </View>
     );
   }
 
+  if (!biomarker) {
+    return (
+      <View className="flex-1 bg-[#0A0A0A] items-center justify-center px-6">
+        <Text className="text-base text-[#888888] mt-3">
+          Biomarcador não encontrado
+        </Text>
+      </View>
+    );
+  }
+
+  const description = descriptions[biomarker.name_normalized]
+    || `${biomarker.name} é um biomarcador analisado nas tuas análises clínicas. O teu médico poderá contextualizar este valor (${biomarker.latestValue} ${biomarker.unit}) no teu perfil de saúde.`;
+
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
-        <View className="px-4 pt-4">
-          {/* Header */}
-          <View className="flex-row items-center mb-4">
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#111827" />
-            </TouchableOpacity>
-            <Text className="text-xl font-bold text-gray-900 ml-3 flex-1">
-              {biomarker.name}
-            </Text>
-            <AttentionBadge level={biomarker.attentionLevel} />
-          </View>
+    <View className="flex-1 bg-[#0A0A0A]">
+      <Stack.Screen options={{ title: biomarker.name }} />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 }}>
 
-          {/* Latest value */}
-          <Card className="mb-4">
-            <Text className="text-sm text-gray-500">Último valor</Text>
-            <View className="flex-row items-baseline mt-1">
-              <Text className="text-3xl font-bold" style={{ color }}>
-                {biomarker.latestValue}
-              </Text>
-              <Text className="text-base text-gray-500 ml-2">
-                {biomarker.unit}
-              </Text>
-            </View>
-
-            {/* Trend */}
-            <View className="flex-row items-center mt-2">
-              <Ionicons
-                name={
-                  biomarker.trend === 'a_subir'
-                    ? 'trending-up'
-                    : biomarker.trend === 'a_descer'
-                    ? 'trending-down'
-                    : 'remove-outline'
-                }
-                size={16}
-                color={
-                  biomarker.trend === 'a_subir'
-                    ? '#E07A5F'
-                    : biomarker.trend === 'a_descer'
-                    ? '#8CB369'
-                    : '#9CA3AF'
-                }
-              />
-              <Text className="text-sm text-gray-600 ml-1.5">
-                {trendLabel}
-              </Text>
-            </View>
-
-            {/* Range bar */}
-            <Text className="text-sm font-medium text-gray-700 mt-4">
-              Posição no range de referência
-            </Text>
-            <RangeBar
-              value={biomarker.latestValue}
-              refMin={biomarker.ref_min}
-              refMax={biomarker.ref_max}
-              attentionLevel={biomarker.attentionLevel}
-            />
-          </Card>
-
-          {/* Evolution chart */}
-          <Card className="mb-4">
-            <Text className="text-base font-semibold text-gray-900 mb-3">
-              Evolução temporal
-            </Text>
-            {biomarker.readings.length >= 2 ? (
-              <EvolutionChart
-                readings={biomarker.readings}
-                refMin={biomarker.ref_min}
-                refMax={biomarker.ref_max}
-                unit={biomarker.unit}
-                color={color}
-              />
-            ) : (
-              <View className="items-center py-6">
-                <Ionicons name="analytics-outline" size={32} color="#D1D5DB" />
-                <Text className="text-sm text-gray-400 mt-2 text-center">
-                  São necessários pelo menos 2 registos para ver a evolução.
+        {/* Current Value */}
+        <Card className="p-6 mb-5">
+          <View className="flex-row items-center justify-between">
+            <View>
+              <Text className="text-base text-[#888888] mb-1">Valor actual</Text>
+              <View className="flex-row items-baseline" style={{ gap: 8 }}>
+                <Text style={{ fontSize: 40, fontWeight: '700', color: '#F5F5F5' }}>
+                  {biomarker.latestValue}
                 </Text>
+                <Text className="text-lg text-[#555555]">{biomarker.unit}</Text>
               </View>
-            )}
-          </Card>
-
-          {/* Readings history */}
-          <Card className="mb-4">
-            <Text className="text-base font-semibold text-gray-900 mb-3">
-              Histórico de valores
-            </Text>
-            {/* Table header */}
-            <View className="flex-row pb-2 mb-2 border-b border-gray-100">
-              <Text className="text-xs font-medium text-gray-500 flex-1">Data</Text>
-              <Text className="text-xs font-medium text-gray-500 w-24 text-right">Valor</Text>
-              <Text className="text-xs font-medium text-gray-500 w-16 text-right"></Text>
             </View>
-            {[...biomarker.readings].reverse().map((r) => {
-              const isOutOfRange =
-                (biomarker.ref_min != null && r.value < biomarker.ref_min) ||
-                (biomarker.ref_max != null && r.value > biomarker.ref_max);
-              const isEditing = editingId === r.id;
-              return (
-                <View key={r.id} className="flex-row items-center py-2 border-b border-gray-50">
-                  <Text className="text-sm text-gray-600 flex-1">
-                    {formatDate(r.date)}
-                  </Text>
-                  {isEditing ? (
-                    <View className="flex-row items-center">
-                      <TextInput
-                        value={editValue}
-                        onChangeText={setEditValue}
-                        keyboardType="decimal-pad"
-                        autoFocus
-                        className="text-sm font-medium text-gray-900 border border-gray-300 rounded-lg px-2 py-1 w-20 text-right mr-1"
-                      />
-                      <TouchableOpacity
-                        onPress={() => handleSaveEdit(r.id)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="checkmark-circle" size={22} color="#8CB369" />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => setEditingId(null)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        className="ml-1"
-                      >
-                        <Ionicons name="close-circle" size={22} color="#9CA3AF" />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <>
-                      <Text
-                        className={`text-sm font-medium w-24 text-right ${
-                          isOutOfRange ? 'text-red-500' : 'text-gray-900'
-                        }`}
-                      >
-                        {r.value} {biomarker.unit}
-                      </Text>
-                      <View className="flex-row w-16 justify-end">
-                        <TouchableOpacity
-                          onPress={() => handleStartEdit(r.id, r.value)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="pencil-outline" size={16} color="#9CA3AF" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleDeleteReading(r.id, r.date)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          className="ml-2"
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                        </TouchableOpacity>
-                      </View>
-                    </>
-                  )}
-                </View>
-              );
-            })}
+            <View style={{ alignItems: 'flex-end' }}>
+              <AttentionBadge level={biomarker.attentionLevel} />
+              {attentionReason && (
+                <Text className="text-xs text-[#555555] mt-1">{attentionReason}</Text>
+              )}
+            </View>
+          </View>
+
+          <RangeBar value={biomarker.latestValue} refMin={biomarker.ref_min} refMax={biomarker.ref_max} rangeType={biomarker.rangeType} status={biomarker.attentionLevel} />
+        </Card>
+
+        {/* Evolution Chart */}
+        {biomarker.readings.length >= 2 && (
+          <Card className="p-5 mb-5">
+            <Text className="text-base font-medium text-[#F5F5F5] mb-4">Evolução</Text>
+            <EvolutionChart readings={biomarker.readings} status={biomarker.attentionLevel} />
           </Card>
+        )}
 
-          {/* Family history note */}
-          {isFamilyRelevant && (
-            <Card className="mb-4">
-              <View className="flex-row items-start">
-                <Ionicons
-                  name="people-outline"
-                  size={18}
-                  color="#B8860B"
-                  style={{ marginTop: 1 }}
-                />
-                <View className="flex-1 ml-2">
-                  <Text className="text-sm font-semibold text-amber-800">
-                    Contexto familiar
-                  </Text>
-                  <Text className="text-sm text-gray-700 mt-1 leading-5">
-                    Tendo em conta o teu histórico familiar cardiovascular, faz
-                    sentido acompanhar este biomarcador com atenção extra. Partilha
-                    esta informação com o teu médico para que possa avaliar no teu
-                    contexto pessoal.
-                  </Text>
-                </View>
+        {/* Context Card */}
+        <Card className="p-5 mb-5">
+          <View className="flex-row items-center mb-3" style={{ gap: 12 }}>
+            <View
+              className="w-8 h-8 rounded-full items-center justify-center"
+              style={{ backgroundColor: 'rgba(74,144,217,0.2)' }}
+            >
+              <AlertCircle size={16} color="#4A90D9" />
+            </View>
+            <Text className="text-base font-medium text-[#F5F5F5]">O que significa</Text>
+          </View>
+          <Text className="text-base text-[#888888] leading-relaxed">
+            {description}
+          </Text>
+        </Card>
+
+        {/* Family History Note */}
+        {isFamilyRelevant && (
+          <View
+            className="rounded-2xl p-5 mb-5"
+            style={{ backgroundColor: 'rgba(232,151,58,0.1)', borderWidth: 1, borderColor: 'rgba(232,151,58,0.3)' }}
+          >
+            <View className="flex-row items-center mb-3" style={{ gap: 12 }}>
+              <View
+                className="w-8 h-8 rounded-full items-center justify-center"
+                style={{ backgroundColor: 'rgba(232,151,58,0.2)' }}
+              >
+                <Heart size={16} color="#EF9F27" />
               </View>
-            </Card>
-          )}
-
-          {/* Suggested question */}
-          {suggestedQuestion && (
-            <Card className="mb-4">
-              <View className="flex-row items-start">
-                <Ionicons
-                  name="chatbubble-outline"
-                  size={16}
-                  color="#8CB369"
-                  style={{ marginTop: 2 }}
-                />
-                <View className="flex-1 ml-2">
-                  <Text className="text-sm font-semibold text-gray-900">
-                    Sugestão para a consulta
-                  </Text>
-                  <Text className="text-sm text-gray-700 mt-1 leading-5">
-                    "{suggestedQuestion}"
-                  </Text>
-                </View>
-              </View>
-            </Card>
-          )}
-
-          {/* Disclaimer */}
-          <View className="flex-row items-start bg-blue-50 rounded-xl p-3 border border-blue-100">
-            <Ionicons
-              name="information-circle"
-              size={16}
-              color="#3B82F6"
-              style={{ marginTop: 1 }}
-            />
-            <Text className="text-xs text-blue-700 ml-2 flex-1 leading-4">
-              Esta análise baseia-se apenas nos dados que nos forneceste. O teu
-              médico tem acesso ao teu contexto clínico completo.
+              <Text className="text-base font-medium text-[#EF9F27]">Nota sobre histórico familiar</Text>
+            </View>
+            <Text style={{ fontSize: 15, color: 'rgba(232,151,58,0.8)', lineHeight: 22 }}>
+              O teu histórico familiar de doença cardiovascular precoce torna este biomarcador especialmente relevante. Valores que seriam aceitáveis para a população geral podem requerer maior atenção no teu caso.
             </Text>
           </View>
-        </View>
+        )}
+
+        {/* Doctor Question */}
+        {suggestedQuestion && (
+          <Card className="p-5 mb-5">
+            <View className="flex-row items-center mb-3" style={{ gap: 12 }}>
+              <View
+                className="w-8 h-8 rounded-full items-center justify-center"
+                style={{ backgroundColor: 'rgba(232,93,93,0.2)' }}
+              >
+                <MessageSquare size={16} color="#1D9E75" />
+              </View>
+              <Text className="text-base font-medium text-[#F5F5F5]">Pergunta para o médico</Text>
+            </View>
+            <Text className="text-base text-[#888888] leading-relaxed italic">
+              "{suggestedQuestion}"
+            </Text>
+          </Card>
+        )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

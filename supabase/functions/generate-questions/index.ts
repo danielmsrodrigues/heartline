@@ -5,20 +5,20 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const QUESTIONS_PROMPT = `Com base neste perfil de saúde, gera 2-3 perguntas que esta pessoa poderia fazer ao médico na próxima consulta.
+const QUESTIONS_PROMPT = `Com base neste perfil de saúde, gera 2-3 perguntas CURTAS que esta pessoa poderia fazer ao médico.
 
 DADOS: {dados_serializados}
 
 INSTRUÇÕES:
-- Cada pergunta deve referenciar dados concretos do utilizador (valores, tendências, datas)
-- Formuladas na 1ª pessoa, prontas a usar pelo utilizador
-- Inclui uma frase curta de contexto (porquê esta pergunta)
+- Cada pergunta deve referenciar dados concretos do utilizador
+- Formuladas na 1ª pessoa, prontas a usar
+- Cada pergunta MÁXIMO 100 caracteres — sê directo e conciso
+- O contexto MÁXIMO 80 caracteres
 - Ordena da mais urgente para a menos urgente
 
 REGRAS:
-- NUNCA sugiras medicação ou tratamento específico
-- As perguntas pedem AVALIAÇÃO ao médico, não confirmação
-- Usa "faz sentido", "seria útil", "vale a pena" — nunca "preciso" ou "devo"
+- NUNCA uses "risco", "devo", "preciso", "medicação", "diagnóstico"
+- Usa "faz sentido", "seria útil", "vale a pena"
 - Máximo 3 perguntas
 
 FORMATO: JSON array. Sem markdown, sem backticks.

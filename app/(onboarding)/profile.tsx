@@ -74,7 +74,7 @@ export default function ProfileOnboardingScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
@@ -84,10 +84,10 @@ export default function ProfileOnboardingScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="px-6 pt-12">
-            <Text className="text-2xl font-bold text-gray-900">
+            <Text className="text-2xl font-bold text-[#F5F5F5]">
               Fala-nos sobre ti
             </Text>
-            <Text className="mt-2 text-base text-gray-500 mb-4">
+            <Text className="mt-2 text-base text-[#555555] mb-4">
               Dados pessoais e hábitos de vida
             </Text>
 
@@ -96,12 +96,12 @@ export default function ProfileOnboardingScreen() {
               onPress={() => supabase.auth.signOut()}
               className="mb-4"
             >
-              <Text className="text-xs text-red-400 text-center">DEV: Terminar sessão</Text>
+              <Text className="text-xs text-[#E24B4A] text-center">DEV: Terminar sessão</Text>
             </TouchableOpacity>
 
             {error ? (
-              <View className="bg-red-50 rounded-xl p-3 mb-4">
-                <Text className="text-red-600 text-sm text-center">
+              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
+                <Text className="text-[#E24B4A] text-sm text-center">
                   {error}
                 </Text>
               </View>
@@ -127,7 +127,7 @@ export default function ProfileOnboardingScreen() {
 
             {/* Sex selector */}
             <View className="mb-4">
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+              <Text className="text-sm font-medium text-[#888888] mb-1.5">
                 Sexo
               </Text>
               <View className="flex-row">
@@ -137,13 +137,13 @@ export default function ProfileOnboardingScreen() {
                     onPress={() => setSex(option.value)}
                     className={`flex-1 py-3 rounded-xl items-center mr-2 last:mr-0 border ${
                       sex === option.value
-                        ? 'bg-[#8CB369] border-[#8CB369]'
-                        : 'bg-gray-50 border-gray-200'
+                        ? 'bg-[#1D9E75] border-[#1D9E75]'
+                        : 'bg-[#111111] border-[#151515]'
                     }`}
                   >
                     <Text
                       className={`text-sm font-medium ${
-                        sex === option.value ? 'text-white' : 'text-gray-700'
+                        sex === option.value ? 'text-white' : 'text-[#888888]'
                       }`}
                     >
                       {option.label}
@@ -155,7 +155,7 @@ export default function ProfileOnboardingScreen() {
 
             {/* Smoker toggle */}
             <View className="mb-4">
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+              <Text className="text-sm font-medium text-[#888888] mb-1.5">
                 Fumador(a)?
               </Text>
               <View className="flex-row">
@@ -163,13 +163,13 @@ export default function ProfileOnboardingScreen() {
                   onPress={() => setSmoker(false)}
                   className={`flex-1 py-3 rounded-xl items-center mr-2 border ${
                     !smoker
-                      ? 'bg-[#8CB369] border-[#8CB369]'
-                      : 'bg-gray-50 border-gray-200'
+                      ? 'bg-[#1D9E75] border-[#1D9E75]'
+                      : 'bg-[#111111] border-[#151515]'
                   }`}
                 >
                   <Text
                     className={`text-sm font-medium ${
-                      !smoker ? 'text-white' : 'text-gray-700'
+                      !smoker ? 'text-white' : 'text-[#888888]'
                     }`}
                   >
                     Não
@@ -179,13 +179,13 @@ export default function ProfileOnboardingScreen() {
                   onPress={() => setSmoker(true)}
                   className={`flex-1 py-3 rounded-xl items-center border ${
                     smoker
-                      ? 'bg-[#8CB369] border-[#8CB369]'
-                      : 'bg-gray-50 border-gray-200'
+                      ? 'bg-[#1D9E75] border-[#1D9E75]'
+                      : 'bg-[#111111] border-[#151515]'
                   }`}
                 >
                   <Text
                     className={`text-sm font-medium ${
-                      smoker ? 'text-white' : 'text-gray-700'
+                      smoker ? 'text-white' : 'text-[#888888]'
                     }`}
                   >
                     Sim
@@ -204,7 +204,7 @@ export default function ProfileOnboardingScreen() {
 
             {/* Sedentary work toggle */}
             <View className="mb-4">
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
+              <Text className="text-sm font-medium text-[#888888] mb-1.5">
                 Trabalho sedentário?
               </Text>
               <View className="flex-row">
@@ -212,13 +212,13 @@ export default function ProfileOnboardingScreen() {
                   onPress={() => setSedentaryWork(false)}
                   className={`flex-1 py-3 rounded-xl items-center mr-2 border ${
                     !sedentaryWork
-                      ? 'bg-[#8CB369] border-[#8CB369]'
-                      : 'bg-gray-50 border-gray-200'
+                      ? 'bg-[#1D9E75] border-[#1D9E75]'
+                      : 'bg-[#111111] border-[#151515]'
                   }`}
                 >
                   <Text
                     className={`text-sm font-medium ${
-                      !sedentaryWork ? 'text-white' : 'text-gray-700'
+                      !sedentaryWork ? 'text-white' : 'text-[#888888]'
                     }`}
                   >
                     Não
@@ -228,13 +228,13 @@ export default function ProfileOnboardingScreen() {
                   onPress={() => setSedentaryWork(true)}
                   className={`flex-1 py-3 rounded-xl items-center border ${
                     sedentaryWork
-                      ? 'bg-[#8CB369] border-[#8CB369]'
-                      : 'bg-gray-50 border-gray-200'
+                      ? 'bg-[#1D9E75] border-[#1D9E75]'
+                      : 'bg-[#111111] border-[#151515]'
                   }`}
                 >
                   <Text
                     className={`text-sm font-medium ${
-                      sedentaryWork ? 'text-white' : 'text-gray-700'
+                      sedentaryWork ? 'text-white' : 'text-[#888888]'
                     }`}
                   >
                     Sim

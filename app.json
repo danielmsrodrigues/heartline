@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "heartline",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0A0A0A"
       },
       "package": "com.heartline.app"
     },
@@ -33,11 +33,15 @@
       "@react-native-community/datetimepicker",
       "expo-apple-authentication",
       "@react-native-google-signin/google-signin",
-      ["@kingstinct/react-native-healthkit", {
-        "NSHealthShareUsageDescription": "O Heartline usa dados do Apple Health para complementar a tua visão de saúde cardiovascular, incluindo frequência cardíaca, pressão arterial e atividade física.",
-        "NSHealthUpdateUsageDescription": false,
-        "background": false
-      }]
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "O Heartline usa dados do Apple Health para complementar a tua visão de saúde cardiovascular, incluindo frequência cardíaca, pressão arterial e atividade física.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
@@ -45,7 +49,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A0A0A"
     }
   }
 }

@@ -6,6 +6,8 @@ export type AttentionLevel =
 
 export type Trend = "a_subir" | "a_descer" | "estavel" | "sem_dados";
 
+export type RangeType = "bounded" | "max_only" | "min_only" | "none";
+
 export interface Profile {
   id: string;
   name: string | null;

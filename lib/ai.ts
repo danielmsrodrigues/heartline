@@ -41,7 +41,14 @@ export async function generateNarrative(profileId: string) {
     }
   );
   if (error) throw error;
-  return data as { narrative: string };
+  return data as {
+    insight: string;
+    positive: string;
+    family_note: string;
+    full_insight: string;
+    full_positive: string;
+    full_family: string;
+  };
 }
 
 export async function generateQuestions(profileId: string) {
@@ -55,4 +62,12 @@ export async function generateQuestions(profileId: string) {
   return data as {
     questions: Array<{ question: string; context: string }>;
   };
+}
+
+export async function askQuestion(profileId: string, question: string) {
+  const { data, error } = await supabase.functions.invoke("ask-question", {
+    body: { profileId, question },
+  });
+  if (error) throw error;
+  return data as { answer: string };
 }

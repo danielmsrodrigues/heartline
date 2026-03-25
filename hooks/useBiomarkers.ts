@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./useAuth";
-import { Biomarker, Exam } from "@/lib/types";
+import { Biomarker, Exam, RangeType } from "@/lib/types";
 import {
-  getPosition,
+  classifyRange,
+  getSeverity,
+  getProximity,
   getTrend,
   getAttentionLevel,
   AttentionLevel,
@@ -17,7 +19,9 @@ export interface BiomarkerWithScoring {
   unit: string;
   ref_min: number | null;
   ref_max: number | null;
-  position: number;
+  rangeType: RangeType;
+  severity: number;
+  proximity: number;
   trend: Trend;
   attentionLevel: AttentionLevel;
   readings: { id: string; value: number; date: string }[];
@@ -85,13 +89,16 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
         const readings = sorted
           .map((e) => ({ id: e.marker.id, value: e.marker.value, date: e.date }))
           .reverse();
-        const position = getPosition(latest.value, latest.ref_min, latest.ref_max);
+        const rangeType = classifyRange(latest.ref_min, latest.ref_max);
+        const severity = getSeverity(latest.value, latest.ref_min, latest.ref_max, rangeType);
+        const proximity = getProximity(latest.value, latest.ref_min, latest.ref_max, rangeType);
         const trend = getTrend(readings);
         const isCardiovascular = cardiovascularMarkers.some(
           (m) => key.includes(m)
         );
         const attentionLevel = getAttentionLevel(
-          position,
+          severity,
+          proximity,
           trend,
           hasFamilyHistory && isCardiovascular
         );
@@ -103,7 +110,9 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
           unit: latest.unit,
           ref_min: latest.ref_min,
           ref_max: latest.ref_max,
-          position,
+          rangeType,
+          severity,
+          proximity,
           trend,
           attentionLevel,
           readings,

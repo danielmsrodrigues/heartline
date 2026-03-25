@@ -108,7 +108,7 @@ export default function FamilyOnboardingScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
@@ -118,16 +118,16 @@ export default function FamilyOnboardingScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="px-6 pt-12">
-            <Text className="text-2xl font-bold text-gray-900">
+            <Text className="text-2xl font-bold text-[#F5F5F5]">
               Histórico familiar
             </Text>
-            <Text className="mt-2 text-base text-gray-500 mb-6">
+            <Text className="mt-2 text-base text-[#555555] mb-6">
               Eventos cardiovasculares na tua família
             </Text>
 
             {error ? (
-              <View className="bg-red-50 rounded-xl p-3 mb-4">
-                <Text className="text-red-600 text-sm text-center">
+              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
+                <Text className="text-[#E24B4A] text-sm text-center">
                   {error}
                 </Text>
               </View>
@@ -138,24 +138,24 @@ export default function FamilyOnboardingScreen() {
               <Card key={entry.id} className="mb-3">
                 <View className="flex-row items-center justify-between">
                   <View className="flex-1">
-                    <Text className="text-sm font-semibold text-gray-900 capitalize">
+                    <Text className="text-sm font-semibold text-[#F5F5F5] capitalize">
                       {entry.relationship}
                     </Text>
-                    <Text className="text-sm text-gray-600 capitalize">
+                    <Text className="text-sm text-[#888888] capitalize">
                       {entry.event_type}
                       {entry.event_age
                         ? ` aos ${entry.event_age} anos`
                         : ''}
                     </Text>
                     {entry.notes ? (
-                      <Text className="text-xs text-gray-400 mt-0.5">{entry.notes}</Text>
+                      <Text className="text-xs text-[#555555] mt-0.5">{entry.notes}</Text>
                     ) : null}
                   </View>
                   <TouchableOpacity
                     onPress={() => removeFamilyEntry(entry.id)}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Ionicons name="trash-outline" size={18} color="#9CA3AF" />
+                    <Ionicons name="trash-outline" size={18} color="#555555" />
                   </TouchableOpacity>
                 </View>
               </Card>
@@ -164,12 +164,12 @@ export default function FamilyOnboardingScreen() {
             {/* Add new entry form */}
             {showForm ? (
               <Card className="mb-4">
-                <Text className="text-sm font-semibold text-gray-900 mb-3">
+                <Text className="text-sm font-semibold text-[#F5F5F5] mb-3">
                   Adicionar familiar
                 </Text>
 
                 {/* Relationship picker */}
-                <Text className="text-xs font-medium text-gray-600 mb-1.5">
+                <Text className="text-xs font-medium text-[#888888] mb-1.5">
                   Familiar
                 </Text>
                 <View className="flex-row flex-wrap mb-3">
@@ -179,15 +179,15 @@ export default function FamilyOnboardingScreen() {
                       onPress={() => setRelationship(rel)}
                       className={`px-3 py-2 rounded-lg mr-2 mb-2 border ${
                         relationship === rel
-                          ? 'bg-[#8CB369] border-[#8CB369]'
-                          : 'bg-gray-50 border-gray-200'
+                          ? 'bg-[#1D9E75] border-[#1D9E75]'
+                          : 'bg-[#0A0A0A] border-[#151515]'
                       }`}
                     >
                       <Text
                         className={`text-xs font-medium ${
                           relationship === rel
                             ? 'text-white'
-                            : 'text-gray-700'
+                            : 'text-[#888888]'
                         }`}
                       >
                         {rel}
@@ -197,7 +197,7 @@ export default function FamilyOnboardingScreen() {
                 </View>
 
                 {/* Event type picker */}
-                <Text className="text-xs font-medium text-gray-600 mb-1.5">
+                <Text className="text-xs font-medium text-[#888888] mb-1.5">
                   Tipo de evento
                 </Text>
                 <View className="flex-row flex-wrap mb-3">
@@ -207,13 +207,13 @@ export default function FamilyOnboardingScreen() {
                       onPress={() => setEventType(evt)}
                       className={`px-3 py-2 rounded-lg mr-2 mb-2 border ${
                         eventType === evt
-                          ? 'bg-[#8CB369] border-[#8CB369]'
-                          : 'bg-gray-50 border-gray-200'
+                          ? 'bg-[#1D9E75] border-[#1D9E75]'
+                          : 'bg-[#0A0A0A] border-[#151515]'
                       }`}
                     >
                       <Text
                         className={`text-xs font-medium ${
-                          eventType === evt ? 'text-white' : 'text-gray-700'
+                          eventType === evt ? 'text-white' : 'text-[#888888]'
                         }`}
                       >
                         {evt}
@@ -265,10 +265,10 @@ export default function FamilyOnboardingScreen() {
             ) : (
               <TouchableOpacity
                 onPress={() => setShowForm(true)}
-                className="flex-row items-center justify-center py-3 mb-4 border border-dashed border-gray-300 rounded-xl"
+                className="flex-row items-center justify-center py-3 mb-4 border border-dashed border-[#151515] rounded-xl"
               >
-                <Ionicons name="add-circle-outline" size={20} color="#8CB369" />
-                <Text className="text-sm font-medium text-[#8CB369] ml-2">
+                <Ionicons name="add-circle-outline" size={20} color="#1D9E75" />
+                <Text className="text-sm font-medium text-[#1D9E75] ml-2">
                   Adicionar evento familiar
                 </Text>
               </TouchableOpacity>
@@ -283,7 +283,7 @@ export default function FamilyOnboardingScreen() {
             </View>
 
             <TouchableOpacity onPress={handleSkip} className="mt-3">
-              <Text className="text-center text-sm text-gray-400">
+              <Text className="text-center text-sm text-[#555555]">
                 Saltar — não tenho histórico familiar relevante
               </Text>
             </TouchableOpacity>

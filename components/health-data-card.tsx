@@ -16,7 +16,7 @@ function DataRow({
   label,
   value,
   unit,
-  color = '#111827',
+  color = '#F5F5F5',
 }: {
   icon: string;
   label: string;
@@ -25,15 +25,15 @@ function DataRow({
   color?: string;
 }) {
   return (
-    <View className="flex-row items-center py-2 border-b border-gray-50">
-      <Ionicons name={icon as any} size={18} color="#8CB369" />
-      <Text className="text-sm text-gray-600 ml-2 flex-1">{label}</Text>
+    <View className="flex-row items-center py-2 border-b border-[#151515]">
+      <Ionicons name={icon as any} size={18} color="#1D9E75" />
+      <Text className="text-sm text-[#888888] ml-2 flex-1">{label}</Text>
       {value != null ? (
         <Text className="text-sm font-semibold" style={{ color }}>
-          {value} <Text className="text-xs font-normal text-gray-400">{unit}</Text>
+          {value} <Text className="text-xs font-normal text-[#555555]">{unit}</Text>
         </Text>
       ) : (
-        <Text className="text-xs text-gray-300">Sem dados</Text>
+        <Text className="text-xs text-[#555555]">Sem dados</Text>
       )}
     </View>
   );
@@ -52,18 +52,18 @@ export function HealthDataCard({
     return (
       <Card className="mb-4">
         <View className="flex-row items-center mb-2">
-          <Ionicons name="heart-circle-outline" size={20} color="#8CB369" />
-          <Text className="text-base font-semibold text-gray-900 ml-2">
+          <Ionicons name="heart-circle-outline" size={20} color="#1D9E75" />
+          <Text className="text-base font-semibold text-[#F5F5F5] ml-2">
             Apple Health
           </Text>
         </View>
-        <Text className="text-sm text-gray-500 mb-3 leading-5">
+        <Text className="text-sm text-[#888888] mb-3 leading-5">
           Liga o Apple Health para ver os teus dados de frequência cardíaca,
           pressão arterial e atividade no Heartline.
         </Text>
         <TouchableOpacity
           onPress={onConnect}
-          className="bg-[#8CB369] rounded-xl py-2.5 items-center"
+          className="bg-[#1D9E75] rounded-xl py-2.5 items-center"
           activeOpacity={0.8}
         >
           <Text className="text-white font-semibold text-sm">
@@ -78,12 +78,12 @@ export function HealthDataCard({
     return (
       <Card className="mb-4">
         <View className="flex-row items-center">
-          <Ionicons name="heart-circle-outline" size={20} color="#8CB369" />
-          <Text className="text-base font-semibold text-gray-900 ml-2">
+          <Ionicons name="heart-circle-outline" size={20} color="#1D9E75" />
+          <Text className="text-base font-semibold text-[#F5F5F5] ml-2">
             Apple Health
           </Text>
         </View>
-        <Text className="text-sm text-gray-400 mt-2">A carregar dados...</Text>
+        <Text className="text-sm text-[#555555] mt-2">A carregar dados...</Text>
       </Card>
     );
   }
@@ -97,14 +97,14 @@ export function HealthDataCard({
   return (
     <Card className="mb-4">
       <View className="flex-row items-center mb-1">
-        <Ionicons name="heart-circle-outline" size={20} color="#8CB369" />
-        <Text className="text-base font-semibold text-gray-900 ml-2">
+        <Ionicons name="heart-circle-outline" size={20} color="#1D9E75" />
+        <Text className="text-base font-semibold text-[#F5F5F5] ml-2">
           Apple Health
         </Text>
       </View>
 
       {!hasAnyData ? (
-        <Text className="text-sm text-gray-400 mt-2">
+        <Text className="text-sm text-[#555555] mt-2">
           Sem dados disponíveis no Apple Health.
         </Text>
       ) : (

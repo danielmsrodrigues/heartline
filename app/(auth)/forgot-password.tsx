@@ -37,7 +37,7 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
@@ -46,41 +46,36 @@ export default function ForgotPasswordScreen() {
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
         >
-          <View className="px-6 pt-4">
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#111827" />
-            </TouchableOpacity>
-          </View>
 
           <View className="flex-1 justify-center px-6">
             <Ionicons
               name="lock-open-outline"
               size={48}
-              color="#8CB369"
+              color="#1D9E75"
               style={{ alignSelf: 'center' }}
             />
-            <Text className="text-2xl font-bold text-gray-900 text-center mt-4 mb-2">
+            <Text className="text-2xl font-bold text-[#F5F5F5] text-center mt-4 mb-2">
               Recuperar palavra-passe
             </Text>
-            <Text className="text-sm text-gray-500 text-center mb-8">
+            <Text className="text-sm text-[#555555] text-center mb-8">
               Introduz o teu email e enviamos-te um link para redefinir a palavra-passe.
             </Text>
 
             {error ? (
-              <View className="bg-red-50 rounded-xl p-3 mb-4">
-                <Text className="text-red-600 text-sm text-center">{error}</Text>
+              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
+                <Text className="text-[#E24B4A] text-sm text-center">{error}</Text>
               </View>
             ) : null}
 
             {sent ? (
-              <View className="bg-green-50 rounded-xl p-4 mb-4">
+              <View className="bg-[#1D9E75]/15 rounded-xl p-4 mb-4">
                 <View className="flex-row items-center justify-center mb-2">
-                  <Ionicons name="checkmark-circle" size={24} color="#16a34a" />
-                  <Text className="text-green-800 font-semibold text-base ml-2">
+                  <Ionicons name="checkmark-circle" size={24} color="#1D9E75" />
+                  <Text className="text-[#1D9E75] font-semibold text-base ml-2">
                     Email enviado!
                   </Text>
                 </View>
-                <Text className="text-green-700 text-sm text-center leading-5">
+                <Text className="text-[#1D9E75]/80 text-sm text-center leading-5">
                   Verifica a tua caixa de correio (e a pasta de spam).
                   Clica no link que recebeste para definir uma nova palavra-passe.
                 </Text>
@@ -88,7 +83,7 @@ export default function ForgotPasswordScreen() {
                   onPress={() => router.back()}
                   className="mt-4"
                 >
-                  <Text className="text-center text-sm text-[#8CB369] font-semibold">
+                  <Text className="text-center text-sm text-[#1D9E75] font-semibold">
                     Voltar ao login
                   </Text>
                 </TouchableOpacity>

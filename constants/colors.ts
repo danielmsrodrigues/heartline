@@ -1,8 +1,8 @@
 export const ATTENTION_COLORS = {
-  dentro_do_esperado: { bg: "#F0F7EC", text: "#4A7C28", border: "#8CB369" },
-  a_acompanhar: { bg: "#FFF8F0", text: "#B8860B", border: "#F4A259" },
-  merece_atencao: { bg: "#FFF0EC", text: "#C1440E", border: "#E07A5F" },
-  fora_do_range: { bg: "#FDE8E8", text: "#B91C1C", border: "#D64545" },
+  dentro_do_esperado: { bg: "rgba(29,158,117,0.15)", text: "#1D9E75", border: "#1D9E75" },
+  a_acompanhar: { bg: "rgba(239,159,39,0.15)", text: "#EF9F27", border: "#EF9F27" },
+  merece_atencao: { bg: "rgba(239,159,39,0.15)", text: "#EF9F27", border: "#EF9F27" },
+  fora_do_range: { bg: "rgba(226,75,74,0.15)", text: "#E24B4A", border: "#E24B4A" },
 } as const;
 
 export const TREND_LABELS = {
@@ -13,7 +13,7 @@ export const TREND_LABELS = {
 } as const;
 
 export const ATTENTION_LABELS = {
-  dentro_do_esperado: "Dentro do esperado",
+  dentro_do_esperado: "Esperado",
   a_acompanhar: "A acompanhar",
   merece_atencao: "Merece atenção",
   fora_do_range: "Fora do range",

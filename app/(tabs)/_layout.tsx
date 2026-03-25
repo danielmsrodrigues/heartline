@@ -1,46 +1,25 @@
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack } from 'expo-router';
 
 export default function TabLayout() {
   return (
-    <Tabs
+    <Stack
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#8CB369',
-        tabBarInactiveTintColor: '#9CA3AF',
-        tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopColor: '#F3F4F6',
-        },
+        contentStyle: { backgroundColor: '#0A0A0A' },
+        animation: 'ios_from_right',
+        gestureEnabled: true,
+        animationDuration: 150,
+        headerBackButtonDisplayMode: 'minimal',
+        headerStyle: { backgroundColor: '#0A0A0A' },
+        headerTintColor: '#F5F5F5',
+        headerTitleStyle: { color: '#F5F5F5', fontWeight: '600' as const },
+        headerShadowVisible: false,
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="heart-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="add-exam"
-        options={{
-          title: 'Adicionar',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Perfil',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="settings" options={{ headerShown: true, title: 'Definições' }} />
+      <Stack.Screen name="all-biomarkers" options={{ headerShown: true, title: 'Todos os biomarcadores' }} />
+      <Stack.Screen name="add-exam" options={{ headerShown: true, title: 'Adicionar exame' }} />
+    </Stack>
   );
 }

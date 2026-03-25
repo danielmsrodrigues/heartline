@@ -1,5 +1,4 @@
 import { View, Text, ActivityIndicator } from 'react-native';
-import { Card } from './ui/Card';
 
 interface NarrativeCardProps {
   narrative: string | null;
@@ -8,18 +7,20 @@ interface NarrativeCardProps {
 
 export function NarrativeCard({ narrative, loading }: NarrativeCardProps) {
   return (
-    <Card className="mb-4">
-      <Text className="text-base font-semibold text-gray-900 mb-2">O que vemos no conjunto</Text>
+    <View className="bg-[#111111] border border-[#151515] rounded-2xl" style={{ padding: 18 }}>
+      <Text className="text-[#555555] mb-3" style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+        O que vemos no conjunto
+      </Text>
       {loading ? (
         <View className="py-4 items-center">
-          <ActivityIndicator size="small" color="#8CB369" />
-          <Text className="text-sm text-gray-400 mt-2">A gerar a tua análise...</Text>
+          <ActivityIndicator size="small" color="#1D9E75" />
+          <Text className="text-sm text-[#555555] mt-2">A gerar a tua análise...</Text>
         </View>
       ) : narrative ? (
-        <Text className="text-sm text-gray-700 leading-5">{narrative}</Text>
+        <Text className="text-sm text-[#CCCCCC]" style={{ lineHeight: 22 }}>{narrative}</Text>
       ) : (
-        <Text className="text-sm text-gray-400">Adiciona exames para ver a tua análise personalizada.</Text>
+        <Text className="text-sm text-[#555555]">Adiciona exames para ver a tua análise personalizada.</Text>
       )}
-    </Card>
+    </View>
   );
 }

@@ -48,7 +48,7 @@ export default function ResetPasswordScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
@@ -58,22 +58,22 @@ export default function ResetPasswordScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="flex-1 justify-center px-6">
-            <Text className="text-2xl font-bold text-gray-900 text-center mb-2">
+            <Text className="text-2xl font-bold text-[#F5F5F5] text-center mb-2">
               Nova palavra-passe
             </Text>
-            <Text className="text-sm text-gray-500 text-center mb-8">
+            <Text className="text-sm text-[#555555] text-center mb-8">
               Introduz a tua nova palavra-passe.
             </Text>
 
             {error ? (
-              <View className="bg-red-50 rounded-xl p-3 mb-4">
-                <Text className="text-red-600 text-sm text-center">{error}</Text>
+              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
+                <Text className="text-[#E24B4A] text-sm text-center">{error}</Text>
               </View>
             ) : null}
 
             {success ? (
-              <View className="bg-green-50 rounded-xl p-3 mb-4">
-                <Text className="text-green-700 text-sm text-center">
+              <View className="bg-[#1D9E75]/15 rounded-xl p-3 mb-4">
+                <Text className="text-[#1D9E75] text-sm text-center">
                   Palavra-passe atualizada! A redirecionar...
                 </Text>
               </View>

@@ -1,17 +1,44 @@
-import { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Alert, Share, TouchableOpacity, Switch } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useFocusEffect } from 'expo-router';
+import { useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  Alert,
+  Share,
+  TouchableOpacity,
+  Switch,
+  Linking,
+  Image,
+  Platform,
+  TextInput,
+  ActivityIndicator,
+  LayoutAnimation,
+  UIManager,
+} from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path, Rect, Circle, G, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
+import { useHealthKit } from '@/hooks/useHealthKit';
 import { Exam } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { SkeletonSettingsRow } from '@/components/ui/Skeleton';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const animateLayout = () => {
+  LayoutAnimation.configureNext(
+    LayoutAnimation.create(250, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+  );
+};
 
 const RELATIONSHIPS = [
   'Pai', 'Mãe', 'Irmão', 'Irmã',
@@ -24,15 +51,124 @@ const EVENT_TYPES = [
   'Hipertensão', 'Colesterol elevado', 'Diabetes', 'Morte súbita', 'Outro',
 ];
 
+function formatSleepHours(value: number | null | undefined): string {
+  if (!value) return '—';
+  const hours = Math.floor(value);
+  const minutes = Math.round((value - hours) * 60);
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h${minutes}m`;
+}
+
+function parseSleepForStepper(value: number | null | undefined): number {
+  return value ?? 7;
+}
+
+function SettingsRow({
+  label,
+  value,
+  onPress,
+  isLast = false,
+  danger = false,
+  icon,
+  expanded = false,
+}: {
+  label: string;
+  value?: string;
+  onPress?: () => void;
+  isLast?: boolean;
+  danger?: boolean;
+  icon?: string;
+  expanded?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={onPress ? 0.7 : 1}
+      className={`flex-row items-center justify-between py-4 px-4 ${!isLast && !expanded ? 'border-b border-[#151515]' : ''}`}
+    >
+      <View className="flex-row items-center flex-1">
+        {icon && (
+          <Ionicons name={icon as any} size={20} color={danger ? '#E24B4A' : '#888888'} style={{ marginRight: 12 }} />
+        )}
+        <Text className={`text-base ${danger ? 'text-[#E24B4A]' : 'text-[#888888]'}`}>{label}</Text>
+      </View>
+      <View className="flex-row items-center">
+        {value && <Text className="text-base text-[#F5F5F5] mr-2">{value}</Text>}
+        {onPress && (
+          <Ionicons
+            name={expanded ? 'chevron-down' : 'chevron-forward'}
+            size={18}
+            color="#555555"
+          />
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function InlineActions({
+  onCancel,
+  onSave,
+  saving,
+}: {
+  onCancel: () => void;
+  onSave: () => void;
+  saving?: boolean;
+}) {
+  return (
+    <View className="flex-row items-center justify-end pb-3 px-4" style={{ gap: 16 }}>
+      <TouchableOpacity onPress={onCancel} activeOpacity={0.7}>
+        <Text className="text-base text-[#888888]">Cancelar</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onSave}
+        activeOpacity={0.7}
+        className="bg-[#1D9E75] rounded-xl px-5 py-2"
+        disabled={saving}
+      >
+        {saving ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <Text className="text-base text-white font-medium">Guardar</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function SectionHeader({ icon, label }: { icon: string; label: string }) {
+  return (
+    <View className="flex-row items-center mt-6 mb-2 px-1">
+      <Ionicons name={icon as any} size={18} color="#555555" />
+      <Text className="text-sm font-semibold text-[#555555] ml-2 tracking-wider uppercase">{label}</Text>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { profile, familyHistory, addFamilyEntry, removeFamilyEntry, refetch: refetchProfile } = useProfile();
+  const { profile, familyHistory, loading: profileLoading, addFamilyEntry, removeFamilyEntry, refetch: refetchProfile } = useProfile();
+  const {
+    authorized: healthAuthorized,
+    loading: healthLoading,
+    isAvailable: healthAvailable,
+    connect: connectHealth,
+    disconnect: disconnectHealth,
+  } = useHealthKit();
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [editing, setEditing] = useState(false);
 
-  // Family history editing
+  // Inline edit state
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editDate, setEditDate] = useState<Date | null>(null);
+  const [editBool, setEditBool] = useState(false);
+  const [editNumber, setEditNumber] = useState(0);
+  const [editingExerciseText, setEditingExerciseText] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Family
   const [showFamilyForm, setShowFamilyForm] = useState(false);
   const [famRelationship, setFamRelationship] = useState<string | null>(null);
   const [famEventType, setFamEventType] = useState<string | null>(null);
@@ -40,92 +176,7 @@ export default function SettingsScreen() {
   const [famNotes, setFamNotes] = useState('');
   const [addingFamily, setAddingFamily] = useState(false);
 
-  const handleAddFamily = async () => {
-    if (!famRelationship || !famEventType) return;
-    setAddingFamily(true);
-    const err = await addFamilyEntry({
-      relationship: famRelationship.toLowerCase(),
-      event_type: famEventType.toLowerCase(),
-      event_age: famEventAge ? parseInt(famEventAge) : null,
-      notes: famNotes.trim() || null,
-    });
-    if (err) {
-      Alert.alert('Erro', 'Não foi possível adicionar.');
-    } else {
-      setFamRelationship(null);
-      setFamEventType(null);
-      setFamEventAge('');
-      setFamNotes('');
-      setShowFamilyForm(false);
-      await refetchProfile();
-    }
-    setAddingFamily(false);
-  };
-
-  const handleRemoveFamily = (id: string) => {
-    Alert.alert('Remover', 'Tens a certeza que queres remover esta entrada?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Remover',
-        style: 'destructive',
-        onPress: async () => {
-          await removeFamilyEntry(id);
-          await refetchProfile();
-        },
-      },
-    ]);
-  };
-  const [saving, setSaving] = useState(false);
-
-  // Editable fields
-  const [editName, setEditName] = useState('');
-  const [editBirthDate, setEditBirthDate] = useState<Date | null>(null);
-  const [editSex, setEditSex] = useState('');
-  const [editSmoker, setEditSmoker] = useState(false);
-  const [editExercise, setEditExercise] = useState('');
-  const [editSedentary, setEditSedentary] = useState(false);
-  const [editSleep, setEditSleep] = useState('');
-
-  const startEditing = () => {
-    setEditName(profile?.name ?? '');
-    setEditBirthDate(profile?.birth_date ? new Date(profile.birth_date) : null);
-    setEditSex(profile?.sex ?? '');
-    setEditSmoker(profile?.smoker ?? false);
-    setEditExercise(profile?.exercise_minutes_per_week?.toString() ?? '');
-    setEditSedentary(profile?.sedentary_work ?? false);
-    setEditSleep(profile?.sleep_hours_avg?.toString() ?? '');
-    setEditing(true);
-  };
-
-  const handleSaveProfile = async () => {
-    if (!user) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          name: editName.trim() || null,
-          birth_date: editBirthDate ? editBirthDate.toISOString().split('T')[0] : null,
-          sex: editSex || null,
-          smoker: editSmoker,
-          exercise_minutes_per_week: editExercise ? parseInt(editExercise) : null,
-          sedentary_work: editSedentary,
-          sleep_hours_avg: editSleep ? parseFloat(editSleep) : null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-      if (error) throw error;
-      await refetchProfile();
-      setEditing(false);
-    } catch (err) {
-      console.error('Save profile error:', err);
-      Alert.alert('Erro', 'Não foi possível guardar as alterações.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Change password
+  // Password
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -134,53 +185,7 @@ export default function SettingsScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
 
-  const handleChangePassword = async () => {
-    if (!currentPassword || !newPassword || !confirmNewPassword) {
-      setPasswordError('Preenche todos os campos.');
-      return;
-    }
-    if (newPassword.length < 6) {
-      setPasswordError('A nova palavra-passe deve ter pelo menos 6 caracteres.');
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setPasswordError('As palavras-passe não coincidem.');
-      return;
-    }
-    setSavingPassword(true);
-    setPasswordError('');
-
-    // Verify current password
-    const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email: user?.email ?? '',
-      password: currentPassword,
-    });
-    if (verifyError) {
-      setSavingPassword(false);
-      setPasswordError('Palavra-passe atual incorreta.');
-      return;
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-    setSavingPassword(false);
-
-    if (updateError) {
-      setPasswordError('Não foi possível atualizar. Tenta novamente.');
-    } else {
-      setPasswordSuccess(true);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmNewPassword('');
-      setTimeout(() => {
-        setShowPasswordForm(false);
-        setPasswordSuccess(false);
-      }, 2000);
-    }
-  };
-
-  // Exams management
+  // Exams
   const [exams, setExams] = useState<(Exam & { biomarker_count: number })[]>([]);
   const [loadingExams, setLoadingExams] = useState(true);
 
@@ -192,566 +197,637 @@ export default function SettingsScreen() {
       .select('*, biomarkers(count)')
       .eq('profile_id', user.id)
       .order('exam_date', { ascending: false });
-
     if (data) {
-      setExams(
-        data.map((e: any) => ({
-          ...e,
-          biomarker_count: e.biomarkers?.[0]?.count ?? 0,
-        }))
-      );
+      setExams(data.map((e: any) => ({ ...e, biomarker_count: e.biomarkers?.[0]?.count ?? 0 })));
     }
     setLoadingExams(false);
   }, [user]);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchExams();
-    }, [fetchExams])
-  );
+  useFocusEffect(useCallback(() => { fetchExams(); }, [fetchExams]));
 
-  const handleDeleteExam = (examId: string, examDate: string) => {
-    Alert.alert(
-      'Apagar exame',
-      `Tens a certeza que queres apagar o exame de ${formatExamDate(examDate)}? Os biomarcadores associados serão também apagados.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            // Biomarkers cascade on delete via FK
-            await supabase.from('biomarkers').delete().eq('exam_id', examId);
-            await supabase.from('exams').delete().eq('id', examId);
-            await fetchExams();
-          },
-        },
-      ]
-    );
+  const sexLabel = profile?.sex === 'M' ? 'Masculino' : profile?.sex === 'F' ? 'Feminino' : profile?.sex === 'other' ? 'Outro' : '—';
+
+  // Toggle field expansion
+  const toggleField = (field: string) => {
+    animateLayout();
+    if (editingField === field) {
+      setEditingField(null);
+      return;
+    }
+    // Set up edit state for the field
+    if (field === 'name') setEditValue(profile?.name ?? '');
+    else if (field === 'exercise') setEditNumber(profile?.exercise_minutes_per_week ?? 180);
+    else if (field === 'sleep') setEditNumber(parseSleepForStepper(profile?.sleep_hours_avg));
+    else if (field === 'birth_date') setEditDate(profile?.birth_date ? new Date(profile.birth_date) : null);
+    else if (field === 'smoker') setEditBool(profile?.smoker ?? false);
+    else if (field === 'sedentary') setEditBool(profile?.sedentary_work ?? false);
+    else if (field === 'sex') setEditValue(profile?.sex ?? '');
+    setEditingField(field);
   };
 
-  const handleDeleteAllExams = () => {
-    if (exams.length === 0) return;
-    Alert.alert(
-      'Apagar todos os exames',
-      'Tens a certeza? Todos os exames e biomarcadores serão permanentemente apagados.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Apagar tudo',
-          style: 'destructive',
-          onPress: async () => {
-            if (!user) return;
-            await supabase.from('biomarkers').delete().eq('profile_id', user.id);
-            await supabase.from('exams').delete().eq('profile_id', user.id);
-            await supabase.from('generated_content').delete().eq('profile_id', user.id);
-            await fetchExams();
-          },
-        },
-      ]
-    );
+  const cancelEdit = () => {
+    animateLayout();
+    setEditingField(null);
+    setEditingExerciseText(false);
   };
 
-  const formatExamDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+  const handleSaveField = async () => {
+    if (!user) return;
+    setSaving(true);
+    const updates: any = { updated_at: new Date().toISOString() };
+    if (editingField === 'name') updates.name = editValue.trim() || null;
+    else if (editingField === 'exercise') updates.exercise_minutes_per_week = editNumber || null;
+    else if (editingField === 'sleep') updates.sleep_hours_avg = editNumber || null;
+    else if (editingField === 'birth_date') updates.birth_date = editDate ? editDate.toISOString().split('T')[0] : null;
+    else if (editingField === 'smoker') updates.smoker = editBool;
+    else if (editingField === 'sedentary') updates.sedentary_work = editBool;
+    else if (editingField === 'sex') updates.sex = editValue || null;
+
+    const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
+    if (error) Alert.alert('Erro', 'Não foi possível guardar.');
+    else await refetchProfile();
+    setSaving(false);
+    animateLayout();
+    setEditingField(null);
   };
 
-  const age = profile?.birth_date
-    ? Math.floor(
-        (Date.now() - new Date(profile.birth_date).getTime()) /
-          (365.25 * 24 * 60 * 60 * 1000)
-      )
-    : null;
+  // Toggle auto-save (for smoker/sedentary)
+  const handleToggleSave = async (field: string, value: boolean) => {
+    if (!user) return;
+    setEditBool(value);
+    const updates: any = { updated_at: new Date().toISOString() };
+    if (field === 'smoker') updates.smoker = value;
+    else if (field === 'sedentary') updates.sedentary_work = value;
+    await supabase.from('profiles').update(updates).eq('id', user.id);
+    await refetchProfile();
+    setTimeout(() => {
+      animateLayout();
+      setEditingField(null);
+    }, 300);
+  };
 
-  const sexLabel =
-    profile?.sex === 'M'
-      ? 'Masculino'
-      : profile?.sex === 'F'
-      ? 'Feminino'
-      : profile?.sex === 'other'
-      ? 'Outro'
-      : '—';
+  const handleAddFamily = async () => {
+    if (!famRelationship || !famEventType) return;
+    setAddingFamily(true);
+    const err = await addFamilyEntry({
+      relationship: famRelationship.toLowerCase(),
+      event_type: famEventType.toLowerCase(),
+      event_age: famEventAge ? parseInt(famEventAge) : null,
+      notes: famNotes.trim() || null,
+    });
+    if (err) Alert.alert('Erro', 'Não foi possível adicionar.');
+    else {
+      setFamRelationship(null); setFamEventType(null); setFamEventAge(''); setFamNotes('');
+      animateLayout();
+      setShowFamilyForm(false);
+      await refetchProfile();
+    }
+    setAddingFamily(false);
+  };
+
+  const handleRemoveFamily = (id: string) => {
+    Alert.alert('Remover', 'Tens a certeza?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Remover', style: 'destructive', onPress: async () => { await removeFamilyEntry(id); await refetchProfile(); } },
+    ]);
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmNewPassword) { setPasswordError('Preenche todos os campos.'); return; }
+    if (newPassword.length < 6) { setPasswordError('Mínimo 6 caracteres.'); return; }
+    if (newPassword !== confirmNewPassword) { setPasswordError('As palavras-passe não coincidem.'); return; }
+    setSavingPassword(true); setPasswordError('');
+    const { error: verifyError } = await supabase.auth.signInWithPassword({ email: user?.email ?? '', password: currentPassword });
+    if (verifyError) { setSavingPassword(false); setPasswordError('Palavra-passe atual incorreta.'); return; }
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    setSavingPassword(false);
+    if (updateError) setPasswordError('Erro ao atualizar.');
+    else {
+      setPasswordSuccess(true); setCurrentPassword(''); setNewPassword(''); setConfirmNewPassword('');
+      setTimeout(() => { setShowPasswordForm(false); setPasswordSuccess(false); }, 2000);
+    }
+  };
 
   const handleExportData = async () => {
     if (!user) return;
     setExporting(true);
-
     try {
-      const [profileRes, familyRes, examsRes, biomarkersRes, contentRes] =
-        await Promise.all([
-          supabase.from('profiles').select('*').eq('id', user.id).single(),
-          supabase
-            .from('family_history')
-            .select('*')
-            .eq('profile_id', user.id),
-          supabase.from('exams').select('*').eq('profile_id', user.id),
-          supabase.from('biomarkers').select('*').eq('profile_id', user.id),
-          supabase
-            .from('generated_content')
-            .select('*')
-            .eq('profile_id', user.id),
-        ]);
-
-      const exportData = {
-        exported_at: new Date().toISOString(),
-        profile: profileRes.data,
-        family_history: familyRes.data,
-        exams: examsRes.data,
-        biomarkers: biomarkersRes.data,
-        generated_content: contentRes.data,
-      };
-
+      const [profileRes, familyRes, examsRes, biomarkersRes, contentRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('family_history').select('*').eq('profile_id', user.id),
+        supabase.from('exams').select('*').eq('profile_id', user.id),
+        supabase.from('biomarkers').select('*').eq('profile_id', user.id),
+        supabase.from('generated_content').select('*').eq('profile_id', user.id),
+      ]);
       await Share.share({
-        message: JSON.stringify(exportData, null, 2),
+        message: JSON.stringify({ exported_at: new Date().toISOString(), profile: profileRes.data, family_history: familyRes.data, exams: examsRes.data, biomarkers: biomarkersRes.data, generated_content: contentRes.data }, null, 2),
         title: 'Heartline — Os meus dados',
       });
-    } catch (err) {
-      console.error('Export error:', err);
-      Alert.alert('Erro', 'Não foi possível exportar os dados.');
-    } finally {
-      setExporting(false);
-    }
+    } catch (err) { Alert.alert('Erro', 'Não foi possível exportar.'); }
+    finally { setExporting(false); }
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Apagar conta',
-      'Tens a certeza? Esta ação é irreversível. Todos os teus dados serão permanentemente apagados.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Apagar tudo',
-          style: 'destructive',
-          onPress: async () => {
-            if (!user) return;
-            setDeleting(true);
-            try {
-              // Delete all user data in order (foreign key constraints)
-              await supabase
-                .from('generated_content')
-                .delete()
-                .eq('profile_id', user.id);
-              await supabase
-                .from('biomarkers')
-                .delete()
-                .eq('profile_id', user.id);
-              await supabase
-                .from('exams')
-                .delete()
-                .eq('profile_id', user.id);
-              await supabase
-                .from('family_history')
-                .delete()
-                .eq('profile_id', user.id);
-              await supabase.from('profiles').delete().eq('id', user.id);
+    Alert.alert('Apagar conta', 'Ação irreversível. Todos os dados serão apagados.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Apagar tudo', style: 'destructive', onPress: async () => {
+        if (!user) return; setDeleting(true);
+        try {
+          await supabase.from('generated_content').delete().eq('profile_id', user.id);
+          await supabase.from('biomarkers').delete().eq('profile_id', user.id);
+          await supabase.from('exams').delete().eq('profile_id', user.id);
+          await supabase.from('family_history').delete().eq('profile_id', user.id);
+          await supabase.from('profiles').delete().eq('id', user.id);
+          await supabase.auth.signOut();
+        } catch (err) { Alert.alert('Erro', 'Não foi possível apagar.'); }
+        finally { setDeleting(false); }
+      }},
+    ]);
+  };
 
-              // Sign out
-              await supabase.auth.signOut();
-            } catch (err) {
-              console.error('Delete error:', err);
-              Alert.alert(
-                'Erro',
-                'Não foi possível apagar a conta. Tenta novamente.'
-              );
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ]
+  // Render profile row + inline editor
+  const renderProfileRow = (
+    field: string,
+    label: string,
+    displayValue: string,
+    isLast: boolean = false,
+  ) => {
+    const isExpanded = editingField === field;
+
+    return (
+      <View key={field}>
+        <SettingsRow
+          label={label}
+          value={displayValue}
+          onPress={() => toggleField(field)}
+          isLast={isLast && !isExpanded}
+          expanded={isExpanded}
+        />
+        {isExpanded && (
+          <View className={`px-4 pb-1 ${!isLast ? 'border-b border-[#151515]' : ''}`}>
+            {/* Text input: name */}
+            {field === 'name' && (
+              <>
+                <TextInput
+                  value={editValue}
+                  onChangeText={setEditValue}
+                  className="bg-[#0A0A0A] border border-[#151515] rounded-xl px-4 py-3 text-base text-[#F5F5F5] mb-3"
+                  placeholderTextColor="#555555"
+                  placeholder="O teu nome"
+                  autoFocus
+                />
+                <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
+              </>
+            )}
+
+            {/* Date picker: birth_date */}
+            {field === 'birth_date' && (
+              <>
+                <DatePicker
+                  label=""
+                  value={editDate}
+                  onChange={setEditDate}
+                  maximumDate={new Date()}
+                  minimumDate={new Date(1940, 0, 1)}
+                />
+                <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
+              </>
+            )}
+
+            {/* Segmented: sex */}
+            {field === 'sex' && (
+              <>
+                <View className="flex-row mb-3" style={{ gap: 8 }}>
+                  {[{ value: 'M', label: 'Masculino' }, { value: 'F', label: 'Feminino' }, { value: 'other', label: 'Outro' }].map((opt) => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      onPress={() => setEditValue(opt.value)}
+                      className={`flex-1 py-3 rounded-xl border items-center ${editValue === opt.value ? 'bg-[#1D9E75] border-[#1D9E75]' : 'bg-[#0A0A0A] border-[#151515]'}`}
+                    >
+                      <Text className={`text-base ${editValue === opt.value ? 'text-white font-medium' : 'text-[#888888]'}`}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
+              </>
+            )}
+
+            {/* Toggle: smoker */}
+            {field === 'smoker' && (
+              <View className="flex-row items-center justify-between py-2 pb-4">
+                <Text className="text-base text-[#888888]">
+                  {editBool ? 'Sim, fumo' : 'Não, não fumo'}
+                </Text>
+                <Switch
+                  value={editBool}
+                  onValueChange={(val) => handleToggleSave('smoker', val)}
+                  trackColor={{ false: '#3A3A3A', true: '#1D9E75' }}
+                  thumbColor="#FFF"
+                />
+              </View>
+            )}
+
+            {/* Toggle: sedentary */}
+            {field === 'sedentary' && (
+              <View className="flex-row items-center justify-between py-2 pb-4">
+                <Text className="text-base text-[#888888]">
+                  {editBool ? 'Sim, trabalho sedentário' : 'Não, trabalho ativo'}
+                </Text>
+                <Switch
+                  value={editBool}
+                  onValueChange={(val) => handleToggleSave('sedentary', val)}
+                  trackColor={{ false: '#3A3A3A', true: '#1D9E75' }}
+                  thumbColor="#FFF"
+                />
+              </View>
+            )}
+
+            {/* Stepper: exercise */}
+            {field === 'exercise' && (
+              <>
+                <View className="flex-row items-center justify-center py-3" style={{ gap: 24 }}>
+                  <TouchableOpacity
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.max(0, editNumber - 10)); }}
+                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
+                    activeOpacity={0.6}
+                  >
+                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>−</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setEditingExerciseText(true)}
+                    activeOpacity={0.7}
+                    style={{ minWidth: 100, alignItems: 'center' }}
+                  >
+                    {editingExerciseText ? (
+                      <TextInput
+                        value={String(editNumber)}
+                        onChangeText={(t) => { const n = parseInt(t) || 0; setEditNumber(Math.min(10080, Math.max(0, n))); }}
+                        onBlur={() => setEditingExerciseText(false)}
+                        keyboardType="number-pad"
+                        autoFocus
+                        className="text-2xl font-semibold text-[#F5F5F5] text-center"
+                        style={{ minWidth: 80, padding: 0 }}
+                        selectTextOnFocus
+                      />
+                    ) : (
+                      <Text className="text-2xl font-semibold text-[#F5F5F5]">
+                        {editNumber} min
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.min(10080, editNumber + 10)); }}
+                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
+                    activeOpacity={0.6}
+                  >
+                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text className="text-sm text-[#555555] text-center mb-3">
+                  {editNumber >= 60
+                    ? `${Math.floor(editNumber / 60)}h${editNumber % 60 > 0 ? `${editNumber % 60}m` : ''} por semana`
+                    : `${editNumber} minutos por semana`}
+                </Text>
+                <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
+              </>
+            )}
+
+            {/* Stepper: sleep */}
+            {field === 'sleep' && (
+              <>
+                <View className="flex-row items-center justify-center py-3 mb-3" style={{ gap: 24 }}>
+                  <TouchableOpacity
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.max(3, Math.round((editNumber - 0.5) * 2) / 2)); }}
+                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
+                    activeOpacity={0.6}
+                  >
+                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>−</Text>
+                  </TouchableOpacity>
+                  <Text className="text-2xl font-semibold text-[#F5F5F5]" style={{ minWidth: 100, textAlign: 'center' }}>
+                    {formatSleepHours(editNumber)}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.min(12, Math.round((editNumber + 0.5) * 2) / 2)); }}
+                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
+                    activeOpacity={0.6}
+                  >
+                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+                <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
+              </>
+            )}
+          </View>
+        )}
+      </View>
     );
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-  };
-
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Text className="text-2xl font-bold text-gray-900 mb-4">Perfil</Text>
-
-        {/* Profile info */}
-        <Card className="mb-4">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-base font-semibold text-gray-900">
-              Dados pessoais
-            </Text>
-            {!editing && (
-              <TouchableOpacity onPress={startEditing}>
-                <Ionicons name="pencil-outline" size={18} color="#8CB369" />
-              </TouchableOpacity>
-            )}
+    <View className="flex-1 bg-[#0A0A0A]">
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {/* PERFIL */}
+        <SectionHeader icon="person-outline" label="Perfil" />
+        {profileLoading && !profile ? (
+          <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow isLast />
           </View>
-
-          {editing ? (
-            <>
-              <Input
-                label="Nome"
-                value={editName}
-                onChangeText={setEditName}
-                placeholder="O teu nome"
-              />
-              <DatePicker
-                label="Data de nascimento"
-                value={editBirthDate}
-                onChange={setEditBirthDate}
-                maximumDate={new Date()}
-                minimumDate={new Date(1940, 0, 1)}
-              />
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">Sexo</Text>
-              <View className="flex-row mb-4">
-                {[{ value: 'M', label: 'Masculino' }, { value: 'F', label: 'Feminino' }, { value: 'other', label: 'Outro' }].map((opt) => (
-                  <TouchableOpacity
-                    key={opt.value}
-                    onPress={() => setEditSex(opt.value)}
-                    className={`px-3 py-2 rounded-lg mr-2 border ${
-                      editSex === opt.value ? 'bg-[#8CB369] border-[#8CB369]' : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <Text className={`text-sm ${editSex === opt.value ? 'text-white font-medium' : 'text-gray-600'}`}>
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View className="flex-row items-center justify-between mb-4">
-                <Text className="text-sm text-gray-700">Fumador(a)</Text>
-                <Switch value={editSmoker} onValueChange={setEditSmoker} trackColor={{ true: '#8CB369' }} />
-              </View>
-              <View className="flex-row items-center justify-between mb-4">
-                <Text className="text-sm text-gray-700">Trabalho sedentário</Text>
-                <Switch value={editSedentary} onValueChange={setEditSedentary} trackColor={{ true: '#8CB369' }} />
-              </View>
-
-              <View className="flex-row">
-                <View className="flex-1 mr-2">
-                  <Input
-                    label="Exercício (min/semana)"
-                    value={editExercise}
-                    onChangeText={setEditExercise}
-                    placeholder="0"
-                    keyboardType="number-pad"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Input
-                    label="Sono (horas/noite)"
-                    value={editSleep}
-                    onChangeText={setEditSleep}
-                    placeholder="0"
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-              </View>
-
-              <View className="flex-row mt-2">
-                <View className="flex-1 mr-2">
-                  <Button title="Cancelar" variant="secondary" onPress={() => setEditing(false)} />
-                </View>
-                <View className="flex-1">
-                  <Button title="Guardar" onPress={handleSaveProfile} loading={saving} />
-                </View>
-              </View>
-            </>
-          ) : (
-            <>
-              <View className="mb-2">
-                <Text className="text-xs text-gray-500">Nome</Text>
-                <Text className="text-sm text-gray-900">{profile?.name ?? '—'}</Text>
-              </View>
-              <View className="flex-row mb-2">
-                <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Idade</Text>
-                  <Text className="text-sm text-gray-900">{age != null ? `${age} anos` : '—'}</Text>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Sexo</Text>
-                  <Text className="text-sm text-gray-900">{sexLabel}</Text>
-                </View>
-              </View>
-              <View className="flex-row mb-2">
-                <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Fumador(a)</Text>
-                  <Text className="text-sm text-gray-900">{profile?.smoker ? 'Sim' : 'Não'}</Text>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Trabalho sedentário</Text>
-                  <Text className="text-sm text-gray-900">{profile?.sedentary_work ? 'Sim' : 'Não'}</Text>
-                </View>
-              </View>
-              <View className="flex-row">
-                <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Exercício / semana</Text>
-                  <Text className="text-sm text-gray-900">
-                    {profile?.exercise_minutes_per_week ? `${profile.exercise_minutes_per_week} min` : '—'}
-                  </Text>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-xs text-gray-500">Sono / noite</Text>
-                  <Text className="text-sm text-gray-900">
-                    {profile?.sleep_hours_avg ? `${profile.sleep_hours_avg}h` : '—'}
-                  </Text>
-                </View>
-              </View>
-            </>
-          )}
-        </Card>
-
-        {/* Family history */}
-        <Card className="mb-4">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-base font-semibold text-gray-900">
-              Histórico familiar
-            </Text>
-            {!showFamilyForm && (
-              <TouchableOpacity onPress={() => setShowFamilyForm(true)}>
-                <Ionicons name="add-circle-outline" size={20} color="#8CB369" />
-              </TouchableOpacity>
-            )}
+        ) : (
+          <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+            {renderProfileRow('name', 'Nome', profile?.name ?? '—')}
+            {renderProfileRow('birth_date', 'Data de nascimento', profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString('pt-PT') : '—')}
+            {renderProfileRow('sex', 'Sexo', sexLabel)}
+            {renderProfileRow('smoker', 'Fumador', profile?.smoker ? 'Sim' : 'Não')}
+            {renderProfileRow('exercise', 'Exercício semanal', profile?.exercise_minutes_per_week ? `${profile.exercise_minutes_per_week} min` : '—')}
+            {renderProfileRow('sedentary', 'Trabalho sedentário', profile?.sedentary_work ? 'Sim' : 'Não')}
+            {renderProfileRow('sleep', 'Horas de sono', formatSleepHours(profile?.sleep_hours_avg), true)}
           </View>
+        )}
 
-          {familyHistory.length > 0 ? (
-            familyHistory.map((entry) => (
-              <View key={entry.id} className="flex-row items-center justify-between mb-2">
-                <View className="flex-row items-center flex-1">
-                  <Ionicons name="people-outline" size={14} color="#9CA3AF" />
-                  <Text className="text-sm text-gray-700 ml-2 capitalize flex-1">
-                    {entry.relationship} — {entry.event_type}
-                    {entry.event_age ? ` aos ${entry.event_age} anos` : ''}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => handleRemoveFamily(entry.id)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons name="close-circle" size={18} color="#D1D5DB" />
-                </TouchableOpacity>
-              </View>
-            ))
-          ) : (
-            <Text className="text-sm text-gray-400 mb-2">
-              Sem histórico familiar registado
-            </Text>
-          )}
+        {/* HISTÓRICO FAMILIAR */}
+        <SectionHeader icon="heart-outline" label="Histórico familiar" />
+        <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+          {familyHistory.map((entry, i) => (
+            <TouchableOpacity key={entry.id} onPress={() => handleRemoveFamily(entry.id)} activeOpacity={0.7}
+              className={`flex-row items-center justify-between py-3.5 px-4 border-b border-[#151515]`}>
+              <Text className="text-base text-[#888888] capitalize flex-1">
+                {entry.relationship} — {entry.event_type}{entry.event_age ? ` aos ${entry.event_age} anos` : ''}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color="#555555" />
+            </TouchableOpacity>
+          ))}
 
+          {/* Add button */}
+          <TouchableOpacity
+            onPress={() => { animateLayout(); setShowFamilyForm(!showFamilyForm); }}
+            className="py-3.5 px-4"
+            activeOpacity={0.7}
+          >
+            <View className="flex-row items-center justify-center" style={{ gap: 6 }}>
+              <Text className="text-base text-[#1D9E75] font-medium">Adicionar familiar</Text>
+              <Ionicons name={showFamilyForm ? 'chevron-up' : 'chevron-down'} size={16} color="#1D9E75" />
+            </View>
+          </TouchableOpacity>
+
+          {/* Inline family form */}
           {showFamilyForm && (
-            <View className="mt-3 pt-3 border-t border-gray-100">
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">Familiar</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
-                {RELATIONSHIPS.map((r) => (
-                  <TouchableOpacity
-                    key={r}
-                    onPress={() => setFamRelationship(r)}
-                    className={`px-2.5 py-1.5 rounded-lg mr-1.5 border ${
-                      famRelationship === r ? 'bg-[#8CB369] border-[#8CB369]' : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <Text className={`text-xs ${famRelationship === r ? 'text-white font-medium' : 'text-gray-600'}`}>
-                      {r}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+            <View className="px-4 pb-4 border-t border-[#151515]">
+              <Text className="text-xs font-semibold text-[#555555] tracking-wider uppercase mt-3 mb-2">Familiar</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={true} className="mb-4">
+                <View className="flex-row" style={{ gap: 6 }}>
+                  {RELATIONSHIPS.map((r) => (
+                    <TouchableOpacity key={r} onPress={() => setFamRelationship(r)}
+                      className={`px-3.5 py-2 rounded-full border ${famRelationship === r ? 'bg-[#1D9E75] border-[#1D9E75]' : 'bg-[#0A0A0A] border-[#151515]'}`}>
+                      <Text className={`text-sm ${famRelationship === r ? 'text-white font-medium' : 'text-[#888888]'}`}>{r}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </ScrollView>
 
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">Evento</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
-                {EVENT_TYPES.map((e) => (
-                  <TouchableOpacity
-                    key={e}
-                    onPress={() => setFamEventType(e)}
-                    className={`px-2.5 py-1.5 rounded-lg mr-1.5 border ${
-                      famEventType === e ? 'bg-[#8CB369] border-[#8CB369]' : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <Text className={`text-xs ${famEventType === e ? 'text-white font-medium' : 'text-gray-600'}`}>
-                      {e}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+              <Text className="text-xs font-semibold text-[#555555] tracking-wider uppercase mb-2">Evento</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={true} className="mb-4">
+                <View className="flex-row" style={{ gap: 6 }}>
+                  {EVENT_TYPES.map((e) => (
+                    <TouchableOpacity key={e} onPress={() => setFamEventType(e)}
+                      className={`px-3.5 py-2 rounded-full border ${famEventType === e ? 'bg-[#1D9E75] border-[#1D9E75]' : 'bg-[#0A0A0A] border-[#151515]'}`}>
+                      <Text className={`text-sm ${famEventType === e ? 'text-white font-medium' : 'text-[#888888]'}`}>{e}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </ScrollView>
 
-              <View className="flex-row">
-                <View className="flex-1 mr-2">
-                  <Input
-                    label="Idade no evento"
+              <View className="flex-row" style={{ gap: 10 }}>
+                <View className="flex-1">
+                  <Text className="text-xs font-semibold text-[#555555] tracking-wider uppercase mb-2">Idade</Text>
+                  <TextInput
                     value={famEventAge}
                     onChangeText={setFamEventAge}
-                    placeholder="Ex: 48"
+                    placeholder="48"
+                    placeholderTextColor="#555555"
                     keyboardType="number-pad"
+                    className="bg-[#0A0A0A] border border-[#151515] rounded-xl px-4 py-3 text-base text-[#F5F5F5]"
                   />
                 </View>
-                <View className="flex-1">
-                  <Input
-                    label="Notas (opcional)"
+                <View className="flex-[2]">
+                  <Text className="text-xs font-semibold text-[#555555] tracking-wider uppercase mb-2">Notas</Text>
+                  <TextInput
                     value={famNotes}
                     onChangeText={setFamNotes}
-                    placeholder="Detalhes"
+                    placeholder="Opcional"
+                    placeholderTextColor="#555555"
+                    className="bg-[#0A0A0A] border border-[#151515] rounded-xl px-4 py-3 text-base text-[#F5F5F5]"
                   />
                 </View>
               </View>
 
-              <View className="flex-row mt-1">
-                <View className="flex-1 mr-2">
-                  <Button title="Cancelar" variant="secondary" onPress={() => setShowFamilyForm(false)} />
-                </View>
-                <View className="flex-1">
-                  <Button
-                    title="Adicionar"
-                    onPress={handleAddFamily}
-                    loading={addingFamily}
-                    disabled={!famRelationship || !famEventType}
-                  />
-                </View>
-              </View>
-            </View>
-          )}
-        </Card>
-
-        {/* Change password */}
-        <Card className="mb-4">
-          <View className="flex-row items-center justify-between mb-1">
-            <Text className="text-base font-semibold text-gray-900">
-              Palavra-passe
-            </Text>
-            {!showPasswordForm && (
-              <TouchableOpacity onPress={() => { setShowPasswordForm(true); setPasswordError(''); setPasswordSuccess(false); }}>
-                <Ionicons name="pencil-outline" size={18} color="#8CB369" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {showPasswordForm ? (
-            <View className="mt-2">
-              {passwordError ? (
-                <View className="bg-red-50 rounded-lg p-2 mb-3">
-                  <Text className="text-red-600 text-xs text-center">{passwordError}</Text>
-                </View>
-              ) : null}
-              {passwordSuccess ? (
-                <View className="bg-green-50 rounded-lg p-2 mb-3">
-                  <Text className="text-green-700 text-xs text-center">Palavra-passe atualizada!</Text>
-                </View>
-              ) : null}
-              <Input
-                label="Palavra-passe atual"
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-                secureTextEntry
-                placeholder="••••••••"
-              />
-              <Input
-                label="Nova palavra-passe"
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry
-                placeholder="••••••••"
-              />
-              <Input
-                label="Confirmar nova palavra-passe"
-                value={confirmNewPassword}
-                onChangeText={setConfirmNewPassword}
-                secureTextEntry
-                placeholder="••••••••"
-              />
-              <View className="flex-row mt-1">
-                <View className="flex-1 mr-2">
-                  <Button title="Cancelar" variant="secondary" onPress={() => { setShowPasswordForm(false); setPasswordError(''); }} />
-                </View>
-                <View className="flex-1">
-                  <Button title="Guardar" onPress={handleChangePassword} loading={savingPassword} />
-                </View>
-              </View>
-            </View>
-          ) : (
-            <Text className="text-xs text-gray-400">••••••••</Text>
-          )}
-        </Card>
-
-        {/* Exams management */}
-        <Card className="mb-4">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-base font-semibold text-gray-900">
-              Exames ({exams.length})
-            </Text>
-            {exams.length > 0 && (
-              <TouchableOpacity onPress={handleDeleteAllExams}>
-                <Text className="text-xs text-red-400">Apagar todos</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {exams.length > 0 ? (
-            exams.map((exam) => (
-              <View key={exam.id} className="flex-row items-center justify-between py-2 border-b border-gray-50">
-                <View className="flex-1">
-                  <Text className="text-sm font-medium text-gray-900">
-                    {formatExamDate(exam.exam_date)}
-                  </Text>
-                  <Text className="text-xs text-gray-500">
-                    {exam.lab_name || 'Sem laboratório'} · {exam.biomarker_count} biomarcador{exam.biomarker_count !== 1 ? 'es' : ''} · {exam.extraction_method === 'ai_extracted' ? 'Extração IA' : 'Manual'}
-                  </Text>
-                </View>
+              <View className="flex-row items-center justify-end mt-4" style={{ gap: 16 }}>
+                <TouchableOpacity onPress={() => { animateLayout(); setShowFamilyForm(false); setFamRelationship(null); setFamEventType(null); setFamEventAge(''); setFamNotes(''); }} activeOpacity={0.7}>
+                  <Text className="text-base text-[#888888]">Cancelar</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => handleDeleteExam(exam.id, exam.exam_date)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  className="ml-3"
+                  onPress={handleAddFamily}
+                  activeOpacity={0.7}
+                  disabled={!famRelationship || !famEventType || addingFamily}
+                  className={`rounded-xl px-5 py-2 ${famRelationship && famEventType ? 'bg-[#1D9E75]' : 'bg-[#1D9E75]/40'}`}
                 >
-                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  {addingFamily ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : (
+                    <Text className="text-base text-white font-medium">Adicionar</Text>
+                  )}
                 </TouchableOpacity>
               </View>
-            ))
-          ) : (
-            <Text className="text-sm text-gray-400">
-              Sem exames registados
-            </Text>
+            </View>
           )}
-        </Card>
+        </View>
 
-        {/* Data actions */}
-        <Card className="mb-4">
-          <Text className="text-base font-semibold text-gray-900 mb-3">
-            Os teus dados
-          </Text>
+        {/* CONEXÕES */}
+        <SectionHeader icon="link-outline" label="Conexões" />
+        <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+          {/* Apple Health */}
+          {healthAvailable && (
+            <View className="flex-row items-center justify-between py-4 px-4 border-b border-[#151515]">
+              <View className="flex-row items-center flex-1" style={{ gap: 12 }}>
+                <Svg width={28} height={28} viewBox="0 0 120 120">
+                  <Defs>
+                    <LinearGradient id="ahg" x1="0" y1="0" x2="0" y2="1">
+                      <Stop offset="0" stopColor="#FF6482" />
+                      <Stop offset="1" stopColor="#FF2D55" />
+                    </LinearGradient>
+                  </Defs>
+                  <Rect width="120" height="120" rx="26" fill="url(#ahg)" />
+                  <Path d="M60 90C47 80 30 68 30 52c0-10 8-18 17-18 6 0 10 3 13 7 3-4 7-7 13-7 9 0 17 8 17 18 0 16-17 28-30 38z" fill="#FFF" />
+                </Svg>
+                <View>
+                  <Text className="text-base text-[#F5F5F5]">Apple Health</Text>
+                  <Text className="text-xs text-[#555555]">Frequência cardíaca, passos, PA</Text>
+                </View>
+              </View>
+              <Switch
+                value={healthAuthorized}
+                onValueChange={async (val) => { if (val) await connectHealth(); else disconnectHealth(); }}
+                trackColor={{ false: '#3A3A3A', true: '#8CB369' }}
+                thumbColor="#FFF"
+              />
+            </View>
+          )}
 
-          <View className="mb-3">
-            <Button
-              title="Exportar os meus dados"
-              variant="secondary"
-              onPress={handleExportData}
-              loading={exporting}
+          {/* Google Fit */}
+          <View className="flex-row items-center justify-between py-4 px-4 border-b border-[#151515]">
+            <View className="flex-row items-center flex-1" style={{ gap: 12 }}>
+              <Svg width={28} height={28} viewBox="0 0 120 120">
+                <Rect width="120" height="120" rx="26" fill="#FFF" />
+                <Path d="M38 74l12-20 12 20" fill="none" stroke="#4285F4" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M50 54l12 20 12-20" fill="none" stroke="#EA4335" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M62 74l12-20" fill="none" stroke="#FBBC05" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M50 54l12-20" fill="none" stroke="#34A853" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <View>
+                <Text className="text-base text-[#F5F5F5]">Google Fit</Text>
+                <Text className="text-xs text-[#555555]">Atividade, passos, frequência cardíaca</Text>
+              </View>
+            </View>
+            <Switch
+              value={false}
+              onValueChange={() => Alert.alert('Em breve', 'Google Fit estará disponível numa próxima versão.')}
+              trackColor={{ false: '#3A3A3A', true: '#8CB369' }}
+              thumbColor="#FFF"
+              disabled
             />
           </View>
 
-          <Button
-            title="Apagar conta e todos os dados"
-            variant="danger"
-            onPress={handleDeleteAccount}
-            loading={deleting}
-          />
-        </Card>
+          {/* Samsung Health */}
+          <View className="flex-row items-center justify-between py-4 px-4 border-b border-[#151515]">
+            <View className="flex-row items-center flex-1" style={{ gap: 12 }}>
+              <Svg width={28} height={28} viewBox="0 0 120 120">
+                <Rect width="120" height="120" rx="26" fill="#1428A0" />
+                <Path d="M40 68c0-6 20-12 20-22 0-5-3-8-7-8s-8 4-8 4M80 52c0 6-20 12-20 22 0 5 3 8 7 8s8-4 8-4" fill="none" stroke="#FFF" strokeWidth="6" strokeLinecap="round" />
+              </Svg>
+              <View>
+                <Text className="text-base text-[#F5F5F5]">Samsung Health</Text>
+                <Text className="text-xs text-[#555555]">Atividade, sono, frequência cardíaca</Text>
+              </View>
+            </View>
+            <Switch
+              value={false}
+              onValueChange={() => Alert.alert('Em breve', 'Samsung Health estará disponível numa próxima versão.')}
+              trackColor={{ false: '#3A3A3A', true: '#8CB369' }}
+              thumbColor="#FFF"
+              disabled
+            />
+          </View>
 
-        {/* GDPR info */}
-        <View className="bg-blue-50 rounded-xl p-3 mb-4 border border-blue-100">
-          <Text className="text-xs text-blue-700 leading-4">
-            Os teus dados de saúde são encriptados e guardados na União Europeia.
-            Nunca os vendemos ou partilhamos. Tens sempre o direito de exportar
-            ou apagar os teus dados.
+          {/* Oura */}
+          <View className="flex-row items-center justify-between py-4 px-4 border-b border-[#151515]">
+            <View className="flex-row items-center flex-1" style={{ gap: 12 }}>
+              <Svg width={28} height={28} viewBox="0 0 120 120">
+                <Rect width="120" height="120" rx="26" fill="#0A0A0A" />
+                <Circle cx="60" cy="60" r="24" fill="none" stroke="#FFF" strokeWidth="6" />
+              </Svg>
+              <View>
+                <Text className="text-base text-[#F5F5F5]">Oura Ring</Text>
+                <Text className="text-xs text-[#555555]">Sono, recuperação, temperatura</Text>
+              </View>
+            </View>
+            <Switch
+              value={false}
+              onValueChange={() => Alert.alert('Em breve', 'Oura estará disponível numa próxima versão.')}
+              trackColor={{ false: '#3A3A3A', true: '#8CB369' }}
+              thumbColor="#FFF"
+              disabled
+            />
+          </View>
+
+          {/* Fitbit */}
+          <View className="flex-row items-center justify-between py-4 px-4">
+            <View className="flex-row items-center flex-1" style={{ gap: 12 }}>
+              <Svg width={28} height={28} viewBox="0 0 120 120">
+                <Rect width="120" height="120" rx="26" fill="#00B0B9" />
+                <G fill="#FFF">
+                  <Circle cx="60" cy="36" r="6" />
+                  <Circle cx="60" cy="52" r="6" />
+                  <Circle cx="60" cy="68" r="6" />
+                  <Circle cx="60" cy="84" r="6" />
+                  <Circle cx="44" cy="44" r="5" />
+                  <Circle cx="44" cy="60" r="5" />
+                  <Circle cx="44" cy="76" r="5" />
+                  <Circle cx="76" cy="44" r="5" />
+                  <Circle cx="76" cy="60" r="5" />
+                  <Circle cx="76" cy="76" r="5" />
+                  <Circle cx="32" cy="52" r="4" />
+                  <Circle cx="32" cy="68" r="4" />
+                  <Circle cx="88" cy="52" r="4" />
+                  <Circle cx="88" cy="68" r="4" />
+                </G>
+              </Svg>
+              <View>
+                <Text className="text-base text-[#F5F5F5]">Fitbit</Text>
+                <Text className="text-xs text-[#555555]">Atividade, sono, frequência cardíaca</Text>
+              </View>
+            </View>
+            <Switch
+              value={false}
+              onValueChange={() => Alert.alert('Em breve', 'Fitbit estará disponível numa próxima versão.')}
+              trackColor={{ false: '#3A3A3A', true: '#8CB369' }}
+              thumbColor="#FFF"
+              disabled
+            />
+          </View>
+        </View>
+
+        {/* PRIVACIDADE E DADOS */}
+        <SectionHeader icon="shield-outline" label="Privacidade e dados" />
+        <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+          <SettingsRow label="Exportar dados" icon="download-outline" onPress={handleExportData} />
+          <SettingsRow label="Apagar conta" icon="trash-outline" onPress={handleDeleteAccount} danger isLast />
+        </View>
+
+        {!showPasswordForm ? (
+          <View className="mt-4 bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+            <SettingsRow label="Alterar palavra-passe" icon="lock-closed-outline" onPress={() => { setShowPasswordForm(true); setPasswordError(''); }} isLast />
+          </View>
+        ) : (
+          <Card className="mt-4">
+            <Text className="text-base font-semibold text-[#F5F5F5] mb-3">Alterar palavra-passe</Text>
+            {passwordError ? <View className="bg-[#E24B4A]/15 rounded-lg p-2 mb-3"><Text className="text-[#E24B4A] text-sm text-center">{passwordError}</Text></View> : null}
+            {passwordSuccess ? <View className="bg-[#8CB369]/15 rounded-lg p-2 mb-3"><Text className="text-[#8CB369] text-sm text-center">Atualizada!</Text></View> : null}
+            <Input label="Atual" value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry placeholder="••••••••" />
+            <Input label="Nova" value={newPassword} onChangeText={setNewPassword} secureTextEntry placeholder="••••••••" />
+            <Input label="Confirmar" value={confirmNewPassword} onChangeText={setConfirmNewPassword} secureTextEntry placeholder="••••••••" />
+            <View className="flex-row mt-1">
+              <View className="flex-1 mr-2"><Button title="Cancelar" variant="secondary" onPress={() => { setShowPasswordForm(false); setPasswordError(''); }} /></View>
+              <View className="flex-1"><Button title="Guardar" onPress={handleChangePassword} loading={savingPassword} /></View>
+            </View>
+          </Card>
+        )}
+
+        {/* SOBRE */}
+        <SectionHeader icon="information-circle-outline" label="Sobre" />
+        <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+          <SettingsRow label="Versão" value="1.0.0" />
+          <SettingsRow label="Termos de serviço" onPress={() => Linking.openURL('https://heartline.app/terms')} />
+          <SettingsRow label="Política de privacidade" onPress={() => Linking.openURL('https://heartline.app/privacy')} isLast />
+        </View>
+
+        {/* Disclaimer */}
+        <View className="bg-[#111111] rounded-2xl border border-[#151515] p-4 mt-4">
+          <Text className="text-sm text-[#555555] text-center leading-5">
+            O Heartline é uma ferramenta de acompanhamento e não substitui diagnóstico ou aconselhamento médico profissional. Consulte sempre um profissional de saúde qualificado.
           </Text>
         </View>
 
-        {/* Sign out */}
-        <View className="mb-6">
-          <Button title="Terminar sessão" variant="secondary" onPress={handleSignOut} />
+        <View className="mt-6 mb-4">
+          <Button title="Terminar sessão" variant="secondary" onPress={async () => { await supabase.auth.signOut(); }} />
         </View>
-
-        {/* Version */}
-        <Text className="text-xs text-gray-300 text-center">
-          Heartline v1.0.0
-        </Text>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

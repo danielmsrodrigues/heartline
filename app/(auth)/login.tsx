@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, Image, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -37,7 +37,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
@@ -47,16 +47,20 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="flex-1 justify-center px-6">
-            <Text className="text-3xl font-bold text-gray-900 text-center">
-              Heartline
-            </Text>
-            <Text className="text-base text-gray-500 text-center mt-2 mb-8">
+            <View className="items-center mb-2">
+              <Image
+                source={require('@/assets/images/logo.png')}
+                style={{ width: 80, height: 80 }}
+                resizeMode="contain"
+              />
+            </View>
+            <Text className="text-base text-[#555555] text-center mt-2 mb-8">
               O contexto completo da tua saúde
             </Text>
 
             {error ? (
-              <View className="bg-red-50 rounded-xl p-3 mb-4">
-                <Text className="text-red-600 text-sm text-center">
+              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
+                <Text className="text-[#E24B4A] text-sm text-center">
                   {error}
                 </Text>
               </View>
@@ -85,7 +89,7 @@ export default function LoginScreen() {
               onPress={() => router.push('/(auth)/forgot-password')}
               className="mt-3"
             >
-              <Text className="text-center text-sm text-gray-400">
+              <Text className="text-center text-sm text-[#555555]">
                 Esqueci-me da palavra-passe
               </Text>
             </TouchableOpacity>
@@ -96,9 +100,9 @@ export default function LoginScreen() {
               onPress={() => router.push('/(auth)/register')}
               className="mt-6"
             >
-              <Text className="text-center text-gray-500">
+              <Text className="text-center text-[#888888]">
                 Não tens conta?{' '}
-                <Text className="text-[#8CB369] font-semibold">
+                <Text className="text-[#1D9E75] font-semibold">
                   Criar conta
                 </Text>
               </Text>
