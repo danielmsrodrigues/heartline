@@ -720,8 +720,8 @@ export default function DashboardScreen() {
             </View>
           </>
         ) : (
-          /* Empty state */
-          !bioLoading && (
+          /* Empty state — show immediately, don't wait for loading */
+          (
             <View>
               {/* Orb with subtle glow + particles — mirrors LuminousOrb structure */}
               <Animated.View style={{ paddingTop: 16, marginBottom: -40, opacity: orbAnim, transform: [{ scale: orbScaleAnim }] }}>

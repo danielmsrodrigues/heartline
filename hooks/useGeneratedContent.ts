@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./useAuth";
 import { generateNarrative, generateQuestions } from "@/lib/ai";
@@ -28,10 +28,11 @@ export function useGeneratedContent() {
   >([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const hasLoadedOnce = useRef(false);
 
   const fetchCached = useCallback(async () => {
     if (!user) return;
-    if (!cards) setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
 
     const { data: narrativeData } = await supabase
       .from("generated_content")
@@ -77,6 +78,7 @@ export function useGeneratedContent() {
       );
     }
 
+    hasLoadedOnce.current = true;
     setLoading(false);
     return needsRegeneration;
   }, [user]);

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./useAuth";
 import { Profile, FamilyHistoryEntry } from "@/lib/types";
@@ -8,10 +8,11 @@ export function useProfile() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [familyHistory, setFamilyHistory] = useState<FamilyHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnce = useRef(false);
 
   const fetchProfile = useCallback(async () => {
     if (!user) return;
-    if (!profile) setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     const { data } = await supabase
       .from("profiles")
       .select("*")
@@ -23,6 +24,7 @@ export function useProfile() {
       .select("*")
       .eq("profile_id", user.id);
     setFamilyHistory(family ?? []);
+    hasLoadedOnce.current = true;
     setLoading(false);
   }, [user]);
 

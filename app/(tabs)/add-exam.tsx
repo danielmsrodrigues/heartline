@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,12 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Modal,
+  Pressable,
+  Linking,
+  Animated,
+  Easing,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -67,9 +73,9 @@ export default function AddExamScreen() {
   // GDPR consent for first exam
   const [consentGiven, setConsentGiven] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const pendingAction = useRef<(() => void) | null>(null);
 
   const checkAndRequestConsent = async (callback: () => void) => {
-    // Check if user has already given consent (has any exams)
     if (!user) return;
     const { count } = await supabase
       .from('exams')
@@ -81,6 +87,7 @@ export default function AddExamScreen() {
     } else if (consentGiven) {
       callback();
     } else {
+      pendingAction.current = callback;
       setShowConsent(true);
     }
   };
@@ -313,40 +320,117 @@ export default function AddExamScreen() {
     }
   };
 
-  // GDPR Consent overlay
-  if (showConsent && !consentGiven) {
-    return (
-      <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-        <View className="flex-1 justify-center px-6">
-          <Text className="text-xl font-bold text-[#F5F5F5] text-center mb-4">
-            Autorização para processamento
+  // GDPR Consent bottom sheet — draggable, clamped at top, dismiss on drag down
+  const sheetY = useRef(new Animated.Value(400)).current;
+  const dragOffset = useRef(0);
+
+  useEffect(() => {
+    if (showConsent && !consentGiven) {
+      sheetY.setValue(400);
+      Animated.spring(sheetY, { toValue: 0, speed: 14, bounciness: 4, useNativeDriver: true }).start();
+    }
+  }, [showConsent, consentGiven]);
+
+  const dismissConsent = () => {
+    Animated.timing(sheetY, { toValue: 400, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }).start(() => {
+      setShowConsent(false);
+      pendingAction.current = null;
+    });
+  };
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5,
+    onPanResponderGrant: () => {
+      sheetY.stopAnimation((v) => { dragOffset.current = v; });
+    },
+    onPanResponderMove: (_, g) => {
+      // Clamp: can't go above 0 (original position), free to go down
+      const newY = Math.max(0, dragOffset.current + g.dy);
+      sheetY.setValue(newY);
+    },
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > 80 || g.vy > 0.5) {
+        // Dragged far enough or fast enough → dismiss
+        dismissConsent();
+      } else {
+        // Snap back
+        Animated.spring(sheetY, { toValue: 0, speed: 20, bounciness: 6, useNativeDriver: true }).start();
+      }
+    },
+  }), []);
+
+  const deferredAction = useRef<(() => void) | null>(null);
+
+  const handleConsent = () => {
+    deferredAction.current = pendingAction.current;
+    pendingAction.current = null;
+    setConsentGiven(true);
+    setShowConsent(false);
+  };
+
+  const consentSheet = (
+    <Modal
+      visible={showConsent && !consentGiven}
+      transparent
+      animationType="fade"
+      onRequestClose={dismissConsent}
+      onDismiss={() => {
+        if (deferredAction.current) {
+          const action = deferredAction.current;
+          deferredAction.current = null;
+          action();
+        }
+      }}
+    >
+      <View style={{ flex: 1 }}>
+        {/* Backdrop — tap to dismiss */}
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={dismissConsent}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}
+        />
+        {/* Sheet */}
+        <Animated.View
+          style={{
+            backgroundColor: '#111111',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            padding: 24,
+            paddingBottom: 40,
+            transform: [{ translateY: sheetY }],
+          }}
+        >
+          {/* Drag handle */}
+          <View {...panResponder.panHandlers} style={{ paddingVertical: 10, marginTop: -10, marginBottom: 10 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: '#333333', alignSelf: 'center' }} />
+          </View>
+          <Ionicons name="shield-checkmark-outline" size={24} color="#1D9E75" style={{ alignSelf: 'center', marginBottom: 12 }} />
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#FFFFFF', textAlign: 'center', marginBottom: 12 }}>
+            Antes de começar
           </Text>
-          <Card className="mb-6">
-            <Text className="text-sm text-[#888888] leading-5">
-              Para analisar os teus exames, processamos dados de saúde.
-              Extraímos valores usando IA, guardamos tudo encriptado na UE, e tu
-              decides o que partilhar e podes apagar tudo a qualquer momento.
-            </Text>
-          </Card>
-          <Button
-            title="Autorizo o processamento dos meus dados de saúde"
-            onPress={() => {
-              setConsentGiven(true);
-              setShowConsent(false);
-            }}
-          />
+          <Text style={{ fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 21, marginBottom: 24 }}>
+            Para analisar os teus exames, processamos dados de saúde com IA. Tudo é encriptado na UE e podes apagar a qualquer momento.
+          </Text>
           <TouchableOpacity
-            onPress={() => setShowConsent(false)}
-            className="mt-3"
+            onPress={handleConsent}
+            activeOpacity={0.8}
+            style={{ backgroundColor: '#1D9E75', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 12 }}
           >
-            <Text className="text-center text-sm text-[#555555]">
-              Cancelar
+            <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>Autorizo e continuar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => Linking.openURL('https://heartline.app/privacy')}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 12, color: '#555555', textAlign: 'center' }}>
+              Saber mais sobre privacidade
             </Text>
           </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+        </Animated.View>
+      </View>
+    </Modal>
+  );
 
   // Extracting overlay
   if (extracting) {
@@ -574,6 +658,7 @@ export default function AddExamScreen() {
   // Choose mode (default)
   return (
     <View className="flex-1 bg-[#0A0A0A]">
+      {consentSheet}
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View className="px-6 pt-2">
 

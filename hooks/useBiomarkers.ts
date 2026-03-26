@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./useAuth";
 import { Biomarker, Exam, RangeType } from "@/lib/types";
@@ -32,11 +32,11 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
   const [biomarkers, setBiomarkers] = useState<BiomarkerWithScoring[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnce = useRef(false);
 
   const fetchBiomarkers = useCallback(async () => {
     if (!user) return;
-    // Only show loading on initial fetch, not on refetch
-    if (biomarkers.length === 0) setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
 
     const { data: examsData } = await supabase
       .from("exams")
@@ -131,6 +131,7 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
     scored.sort((a, b) => order[a.attentionLevel] - order[b.attentionLevel]);
 
     setBiomarkers(scored);
+    hasLoadedOnce.current = true;
     setLoading(false);
   }, [user, hasFamilyHistory]);
 
