@@ -1,11 +1,40 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, Image, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
+
+function AuthInput({ value, onChangeText, placeholder, keyboardType, autoComplete, textContentType }: {
+  value: string; onChangeText: (t: string) => void; placeholder: string;
+  keyboardType?: any; autoComplete?: any; textContentType?: any;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor="#444444"
+      keyboardType={keyboardType}
+      autoCapitalize="none"
+      autoCorrect={false}
+      autoComplete={autoComplete}
+      textContentType={textContentType}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={{
+        backgroundColor: '#111111',
+        borderWidth: 0.5,
+        borderColor: focused ? '#1D9E75' : '#222222',
+        borderRadius: 14,
+        padding: 16,
+        fontSize: 16,
+        color: '#FFFFFF',
+        marginBottom: 12,
+      }}
+    />
+  );
+}
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -15,95 +44,59 @@ export default function ForgotPasswordScreen() {
   const [sent, setSent] = useState(false);
 
   const handleReset = async () => {
-    if (!email.trim()) {
-      setError('Introduz o teu email.');
-      return;
-    }
+    if (!email.trim()) { setError('Introduz o teu email.'); return; }
     setLoading(true);
     setError('');
-
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      email.trim(),
-      { redirectTo: 'heartline://reset-password' }
-    );
-
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: 'heartline://reset-password' });
     setLoading(false);
-
-    if (resetError) {
-      setError('Não foi possível enviar o email. Verifica o endereço.');
-    } else {
-      setSent(true);
-    }
+    if (resetError) setError('Não foi possível enviar o email. Verifica o endereço.');
+    else setSent(true);
   };
 
   return (
     <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1 }}
-          keyboardShouldPersistTaps="handled"
-        >
-
-          <View className="flex-1 justify-center px-6">
-            <Ionicons
-              name="lock-open-outline"
-              size={48}
-              color="#1D9E75"
-              style={{ alignSelf: 'center' }}
-            />
-            <Text className="text-2xl font-bold text-[#F5F5F5] text-center mt-4 mb-2">
-              Recuperar palavra-passe
-            </Text>
-            <Text className="text-sm text-[#555555] text-center mb-8">
-              Introduz o teu email e enviamos-te um link para redefinir a palavra-passe.
-            </Text>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
+        <ScrollView contentContainerStyle={{ paddingTop: 80, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          <View style={{ paddingHorizontal: 24 }}>
+            {/* Logo */}
+            <View style={{ alignItems: 'center', marginBottom: 32 }}>
+              <View style={{ width: 60, height: 60, borderRadius: 30, overflow: 'hidden', marginBottom: 12 }}>
+                <Image source={require('@/assets/images/splash-orb.png')} style={{ width: 60, height: 60 }} resizeMode="cover" />
+              </View>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#FFFFFF' }}>Recuperar palavra-passe</Text>
+              <Text style={{ fontSize: 13, color: '#555555', marginTop: 6, textAlign: 'center', paddingHorizontal: 20 }}>
+                Introduz o teu email e enviamos-te um link para redefinir a palavra-passe.
+              </Text>
+            </View>
 
             {error ? (
-              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
-                <Text className="text-[#E24B4A] text-sm text-center">{error}</Text>
+              <View style={{ backgroundColor: 'rgba(226,75,74,0.12)', borderRadius: 12, padding: 10, marginBottom: 16 }}>
+                <Text style={{ color: '#E24B4A', fontSize: 13, textAlign: 'center' }}>{error}</Text>
               </View>
             ) : null}
 
             {sent ? (
-              <View className="bg-[#1D9E75]/15 rounded-xl p-4 mb-4">
-                <View className="flex-row items-center justify-center mb-2">
-                  <Ionicons name="checkmark-circle" size={24} color="#1D9E75" />
-                  <Text className="text-[#1D9E75] font-semibold text-base ml-2">
-                    Email enviado!
-                  </Text>
-                </View>
-                <Text className="text-[#1D9E75]/80 text-sm text-center leading-5">
-                  Verifica a tua caixa de correio (e a pasta de spam).
-                  Clica no link que recebeste para definir uma nova palavra-passe.
+              <View style={{ backgroundColor: 'rgba(29,158,117,0.12)', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                <Text style={{ color: '#1D9E75', fontSize: 15, fontWeight: '600', textAlign: 'center', marginBottom: 4 }}>Email enviado!</Text>
+                <Text style={{ color: 'rgba(29,158,117,0.7)', fontSize: 13, textAlign: 'center', lineHeight: 20 }}>
+                  Verifica a tua caixa de correio (e a pasta de spam). Clica no link que recebeste para definir uma nova palavra-passe.
                 </Text>
-                <TouchableOpacity
-                  onPress={() => router.back()}
-                  className="mt-4"
-                >
-                  <Text className="text-center text-sm text-[#1D9E75] font-semibold">
-                    Voltar ao login
-                  </Text>
+                <TouchableOpacity onPress={() => router.replace('/(auth)/login')} style={{ marginTop: 16 }}>
+                  <Text style={{ textAlign: 'center', color: '#1D9E75', fontWeight: '600', fontSize: 14 }}>Voltar ao login</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <>
-                <Input
-                  label="Email"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="o.teu@email.com"
-                />
-                <Button
-                  title="Enviar link de recuperação"
+                <AuthInput value={email} onChangeText={setEmail} placeholder="Email" keyboardType="email-address" autoComplete="email" textContentType="emailAddress" />
+
+                <TouchableOpacity
                   onPress={handleReset}
-                  loading={loading}
-                />
+                  disabled={loading}
+                  activeOpacity={0.8}
+                  style={{ backgroundColor: '#1D9E75', borderRadius: 14, paddingVertical: 16, alignItems: 'center' }}
+                >
+                  {loading ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>Enviar link de recuperação</Text>}
+                </TouchableOpacity>
               </>
             )}
           </View>

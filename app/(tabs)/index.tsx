@@ -5,15 +5,18 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  Pressable,
   Image,
   Animated,
   Easing,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, RadialGradient, Stop, Ellipse } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Plus, User, Info, ChevronRight, Sparkles, CheckCircle, Heart, MessageSquare } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { Plus, User, Info, ChevronRight, Sparkles, CheckCircle, Heart, MessageSquare, Camera, Eye, Quote, ArrowRight } from 'lucide-react-native';
 import { useProfile } from '@/hooks/useProfile';
 import { useBiomarkers } from '@/hooks/useBiomarkers';
 import { useGeneratedContent } from '@/hooks/useGeneratedContent';
@@ -26,9 +29,10 @@ const ORB_IMAGES = {
   good: require('@/assets/images/orb-good.png'),
   warning: require('@/assets/images/orb-warning.png'),
   danger: require('@/assets/images/orb-danger.png'),
+  empty: require('@/assets/images/orb-empty.png'),
 } as const;
 
-type OrbStatus = keyof typeof ORB_IMAGES;
+type OrbStatus = 'good' | 'warning' | 'danger';
 
 const BLOB_CONFIGS = [
   { w: 340, h: 250, ox: -25, oy: -20, sxDur: 3800, sxRange: [0.9, 1.15], syDur: 4200, syRange: [0.85, 1.1], rotDur: 7000, rotRange: [-12, 12] },
@@ -178,6 +182,7 @@ function Particle({ color, containerSize, delay }: {
 
 function LuminousOrb({ status }: { status: OrbStatus }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const rotation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -196,9 +201,37 @@ function LuminousOrb({ status }: { status: OrbStatus }) {
         }),
       ])
     );
+    const spin = Animated.loop(
+      Animated.sequence([
+        Animated.timing(rotation, {
+          toValue: 1,
+          duration: 12000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(rotation, {
+          toValue: -1,
+          duration: 12000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(rotation, {
+          toValue: 0,
+          duration: 12000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
     pulse.start();
-    return () => pulse.stop();
+    spin.start();
+    return () => { pulse.stop(); spin.stop(); };
   }, []);
+
+  const rotateInterp = rotation.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-8deg', '0deg', '8deg'],
+  });
 
   const orbSize = 160;
   const glowSize = 360;
@@ -221,7 +254,7 @@ function LuminousOrb({ status }: { status: OrbStatus }) {
           height: orbSize,
           borderRadius: orbSize / 2,
           overflow: 'hidden',
-          transform: [{ scale }],
+          transform: [{ scale }, { rotate: rotateInterp }],
         }}
       >
         <Image
@@ -234,6 +267,59 @@ function LuminousOrb({ status }: { status: OrbStatus }) {
   );
 }
 
+
+function PressableOrb({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
+  const pressScale = useRef(new Animated.Value(1)).current;
+  const glowOpacity = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.parallel([
+      Animated.spring(pressScale, {
+        toValue: 0.92,
+        useNativeDriver: true,
+        speed: 50,
+        bounciness: 0,
+      }),
+      Animated.timing(glowOpacity, {
+        toValue: 0.6,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.parallel([
+      Animated.spring(pressScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 12,
+        bounciness: 8,
+      }),
+      Animated.timing(glowOpacity, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  return (
+    <Pressable
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress();
+      }}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+    >
+      <Animated.View style={{ transform: [{ scale: pressScale }], opacity: glowOpacity }}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -258,6 +344,40 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const headerBg = useRef(new Animated.Value(0)).current;
 
+  // --- Entry animation (only on very first mount, not on re-focus/background) ---
+  const isFirstEver = useRef(true);
+  const orbAnim = useRef(new Animated.Value(1)).current;
+  const orbScaleAnim = useRef(new Animated.Value(1)).current;
+  const labelAnim = useRef(new Animated.Value(1)).current;
+  const metricsAnim = useRef(new Animated.Value(1)).current;
+  const cardsAnim = useRef(new Animated.Value(1)).current;
+  const stepsAnim = useRef(new Animated.Value(1)).current;
+  const quoteAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!isFirstEver.current || bioLoading) return;
+    isFirstEver.current = false;
+    // Set to 0 and animate in
+    orbAnim.setValue(0);
+    orbScaleAnim.setValue(0.8);
+    labelAnim.setValue(0);
+    metricsAnim.setValue(0);
+    cardsAnim.setValue(0);
+    stepsAnim.setValue(0);
+    quoteAnim.setValue(0);
+    const easeOut = Easing.out(Easing.ease);
+    Animated.parallel([
+      Animated.timing(orbAnim, { toValue: 1, duration: 400, easing: easeOut, useNativeDriver: true }),
+      Animated.timing(orbScaleAnim, { toValue: 1, duration: 400, easing: easeOut, useNativeDriver: true }),
+    ]).start();
+    Animated.timing(labelAnim, { toValue: 1, duration: 300, delay: 200, easing: easeOut, useNativeDriver: true }).start();
+    Animated.timing(metricsAnim, { toValue: 1, duration: 300, delay: 400, easing: easeOut, useNativeDriver: true }).start();
+    Animated.timing(cardsAnim, { toValue: 1, duration: 300, delay: 600, easing: easeOut, useNativeDriver: true }).start();
+    Animated.timing(stepsAnim, { toValue: 1, duration: 300, delay: 500, easing: easeOut, useNativeDriver: true }).start();
+    Animated.timing(quoteAnim, { toValue: 1, duration: 300, delay: 700, easing: easeOut, useNativeDriver: true }).start();
+  }, [bioLoading]);
+
+  // --- Silent auto-refresh on focus & app foreground ---
   useFocusEffect(
     useCallback(() => {
       refetchProfile();
@@ -265,6 +385,17 @@ export default function DashboardScreen() {
       refetchContent();
     }, [refetchProfile, refetchBio, refetchContent])
   );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refetchProfile();
+        refetchBio();
+        refetchContent();
+      }
+    });
+    return () => sub.remove();
+  }, [refetchProfile, refetchBio, refetchContent]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -363,55 +494,57 @@ export default function DashboardScreen() {
         {/* Hero — Orb */}
         {hasData ? (
           <>
-            <View style={{ paddingVertical: 32 }}>
-              <LuminousOrb status={overallStatus} />
-              <View className="items-center" style={{ marginTop: 24 }}>
-                <Text className="text-white font-bold" style={{ fontSize: 28 }}>
-                  {statusLabel[overallStatus]}
-                </Text>
-                <Text className="text-[#666666]" style={{ fontSize: 14, marginTop: 4 }}>
-                  {statusSubtitle[overallStatus]}
-                </Text>
-              </View>
-            </View>
+            <Animated.View style={{ paddingVertical: 32, opacity: orbAnim, transform: [{ scale: orbScaleAnim }] }}>
+              <PressableOrb onPress={() => router.push('/analysis' as any)}>
+                <LuminousOrb status={overallStatus} />
+              </PressableOrb>
+            </Animated.View>
+            <Animated.View className="items-center" style={{ marginTop: -8, marginBottom: 24, opacity: labelAnim }}>
+              <Text className="text-white font-bold" style={{ fontSize: 28 }}>
+                {statusLabel[overallStatus]}
+              </Text>
+              <Text className="text-[#666666]" style={{ fontSize: 14, marginTop: 4 }}>
+                {statusSubtitle[overallStatus]}
+              </Text>
+            </Animated.View>
 
             {/* Metrics */}
-            <View
+            <Animated.View
               className="flex-row items-center border-t border-b border-[#151515]"
-              style={{ paddingVertical: 16 }}
+              style={{ paddingVertical: 16, opacity: metricsAnim }}
             >
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/all-biomarkers' as any)} activeOpacity={0.7} style={{ flex: 1, alignItems: 'center' }}>
                 <Text className="text-white font-bold" style={{ fontSize: 26 }}>{biomarkers.length}</Text>
                 <Text className="text-[#555555]" style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Total</Text>
-              </View>
+              </TouchableOpacity>
               <View style={{ width: 1, height: 32, backgroundColor: '#151515' }} />
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/all-biomarkers' as any)} activeOpacity={0.7} style={{ flex: 1, alignItems: 'center' }}>
                 <Text className="text-[#1D9E75] font-bold" style={{ fontSize: 26 }}>{expected}</Text>
                 <Text className="text-[#555555]" style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Sem alertas</Text>
-              </View>
+              </TouchableOpacity>
               <View style={{ width: 1, height: 32, backgroundColor: '#151515' }} />
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/all-biomarkers' as any)} activeOpacity={0.7} style={{ flex: 1, alignItems: 'center' }}>
                 <Text className="text-[#EF9F27] font-bold" style={{ fontSize: 26 }}>{toWatch}</Text>
                 <Text className="text-[#555555]" style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>A acompanhar</Text>
-              </View>
-            </View>
+              </TouchableOpacity>
+            </Animated.View>
 
             {/* Divider */}
             <View style={{ height: 1, backgroundColor: '#151515', marginTop: 24 }} />
 
             {/* Insight Cards */}
-            {isContentLoading ? (
+            {isContentLoading && !cards ? (
               <View style={{ marginTop: 24, gap: 10 }}>
                 <SkeletonCard lines={3} />
                 <SkeletonCard />
                 <SkeletonCard />
               </View>
             ) : cards ? (
-              <View style={{ marginTop: 24, gap: 10 }}>
+              <Animated.View style={{ marginTop: 24, gap: 10, opacity: cardsAnim }}>
                 {/* Card 1 — Main Insight (prominent) */}
                 {cards.insight ? (
                   <TouchableOpacity
-                    onPress={() => router.push('/analysis' as any)}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/analysis' as any); }}
                     activeOpacity={0.8}
                     style={{ borderRadius: 16, overflow: 'hidden' }}
                   >
@@ -469,7 +602,7 @@ export default function DashboardScreen() {
                 {/* Card 4 — Doctor Question */}
                 {firstQuestion ? (
                   <TouchableOpacity
-                    onPress={() => router.push('/analysis' as any)}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/analysis' as any); }}
                     activeOpacity={0.8}
                     style={{ borderRadius: 16, overflow: 'hidden' }}
                   >
@@ -496,7 +629,7 @@ export default function DashboardScreen() {
                     </LinearGradient>
                   </TouchableOpacity>
                 ) : null}
-              </View>
+              </Animated.View>
             ) : null}
 
             {/* Divider */}
@@ -508,7 +641,7 @@ export default function DashboardScreen() {
                 A acompanhar
               </Text>
 
-              {bioLoading ? (
+              {bioLoading && biomarkers.length === 0 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -532,7 +665,7 @@ export default function DashboardScreen() {
                     return (
                       <TouchableOpacity
                         key={b.name_normalized}
-                        onPress={() => router.push(`/biomarker/${b.name_normalized}` as any)}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/biomarker/${b.name_normalized}` as any); }}
                         style={{
                           backgroundColor: '#111111',
                           borderWidth: 0.5,
@@ -589,41 +722,128 @@ export default function DashboardScreen() {
         ) : (
           /* Empty state */
           !bioLoading && (
-            <View style={{ paddingVertical: 32 }}>
-              <LuminousOrb status="good" />
-              <View className="items-center" style={{ marginTop: 24 }}>
-                <Text className="text-white font-bold" style={{ fontSize: 22 }}>
-                  Sem exames ainda
+            <View>
+              {/* Orb with subtle glow + particles — mirrors LuminousOrb structure */}
+              <Animated.View style={{ paddingTop: 16, marginBottom: -40, opacity: orbAnim, transform: [{ scale: orbScaleAnim }] }}>
+                <PressableOrb onPress={() => router.push('/(tabs)/add-exam')}>
+                  <View style={{ width: 360, height: 360, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' }}>
+                    <OrbGlow color="#666666" size={360} />
+                    {Array.from({ length: 10 }, (_, i) => (
+                      <Particle key={i} color="#999999" containerSize={360} delay={i * 400} />
+                    ))}
+                    <View style={{ width: 160, height: 160, borderRadius: 80, overflow: 'hidden' }}>
+                      <Image
+                        source={ORB_IMAGES.empty}
+                        style={{ width: 160, height: 160 }}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  </View>
+                </PressableOrb>
+              </Animated.View>
+
+              {/* Text + CTA */}
+              <Animated.View style={{ alignItems: 'center', opacity: labelAnim, transform: [{ translateY: labelAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
+                <Text style={{ fontSize: 22, fontWeight: '700', color: '#FFFFFF', marginBottom: 8 }}>
+                  Vamos começar
                 </Text>
-                <Text className="text-[#555555]" style={{ fontSize: 14, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>
-                  Adiciona o teu primeiro exame para ver os teus biomarcadores.
+                <Text style={{ fontSize: 14, color: '#888888', textAlign: 'center', paddingHorizontal: 24, lineHeight: 20, marginBottom: 24 }}>
+                  Adiciona o teu primeiro exame e o Heartline dá-te contexto sobre os teus dados.
                 </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => router.push('/(tabs)/add-exam')}
-                className="bg-[#1D9E75] rounded-xl items-center"
-                style={{ paddingVertical: 14, marginTop: 24 }}
-                activeOpacity={0.8}
-              >
-                <Text className="text-white font-semibold" style={{ fontSize: 16 }}>Adicionar exame</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(tabs)/add-exam'); }}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: '#1D9E75',
+                    borderRadius: 14,
+                    paddingVertical: 18,
+                    paddingHorizontal: 24,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    alignSelf: 'stretch',
+                  }}
+                >
+                  <Camera size={20} color="#FFFFFF" />
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>Adicionar exame</Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* 3 step stepper */}
+              <Animated.View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 24,
+                gap: 10,
+                opacity: stepsAnim,
+                transform: [{ translateY: stepsAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+              }}>
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Camera size={16} color="#555555" />
+                  <Text style={{ fontSize: 11, color: '#555555' }}>Fotografa</Text>
+                </View>
+                <ArrowRight size={12} color="#333333" />
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Sparkles size={16} color="#555555" />
+                  <Text style={{ fontSize: 11, color: '#555555' }}>A IA analisa</Text>
+                </View>
+                <ArrowRight size={12} color="#333333" />
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Eye size={16} color="#555555" />
+                  <Text style={{ fontSize: 11, color: '#555555' }}>Vê o contexto</Text>
+                </View>
+              </Animated.View>
+
+              {/* Quote card */}
+              <Animated.View style={{
+                marginTop: 24,
+                backgroundColor: '#111111',
+                borderRadius: 16,
+                padding: 16,
+                flexDirection: 'row',
+                gap: 12,
+                alignItems: 'flex-start',
+                opacity: quoteAnim,
+                transform: [{ translateY: quoteAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+              }}>
+                <Quote size={16} color="#333333" style={{ marginTop: 2 }} />
+                <Text style={{ fontSize: 13, color: '#666666', fontStyle: 'italic', flex: 1, lineHeight: 19 }}>
+                  A medicina analisa exames isoladamente. O Heartline cruza tudo e dá-te o contexto completo.
+                </Text>
+              </Animated.View>
             </View>
           )
         )}
 
-        {/* Disclaimer */}
-        <View className="flex-row items-center" style={{ marginTop: 24, gap: 10, paddingVertical: 16 }}>
-          <Info size={14} color="#333333" />
-          <Text style={{ fontSize: 11, color: '#333333', flex: 1 }}>
-            O Heartline não substitui avaliação médica profissional.
-          </Text>
-        </View>
+        {/* Disclaimer (inline when has data) */}
+        {hasData ? (
+          <View className="flex-row items-center" style={{ marginTop: 24, gap: 10, paddingVertical: 16 }}>
+            <Info size={14} color="#333333" />
+            <Text style={{ fontSize: 11, color: '#333333', flex: 1 }}>
+              O Heartline não substitui avaliação médica profissional.
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
+
+      {/* Disclaimer fixed at bottom for empty state */}
+      {!hasData && !bioLoading ? (
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 20, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Info size={12} color="#333333" />
+            <Text style={{ fontSize: 11, color: '#333333' }}>
+              O Heartline não substitui avaliação médica profissional.
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       {/* Floating "Ask AI" button */}
       {hasData && cards ? (
         <TouchableOpacity
-          onPress={() => router.push('/analysis' as any)}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/analysis' as any); }}
           activeOpacity={0.85}
           style={{
             position: 'absolute',

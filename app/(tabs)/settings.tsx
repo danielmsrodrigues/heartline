@@ -19,11 +19,13 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect, Circle, G, Defs, LinearGradient, Stop } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useHealthKit } from '@/hooks/useHealthKit';
 import { Exam } from '@/lib/types';
+import Slider from '@react-native-community/slider';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -444,77 +446,58 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {/* Stepper: exercise */}
+            {/* Slider: exercise */}
             {field === 'exercise' && (
               <>
-                <View className="flex-row items-center justify-center py-3" style={{ gap: 24 }}>
-                  <TouchableOpacity
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.max(0, editNumber - 10)); }}
-                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
-                    activeOpacity={0.6}
-                  >
-                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>−</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setEditingExerciseText(true)}
-                    activeOpacity={0.7}
-                    style={{ minWidth: 100, alignItems: 'center' }}
-                  >
-                    {editingExerciseText ? (
-                      <TextInput
-                        value={String(editNumber)}
-                        onChangeText={(t) => { const n = parseInt(t) || 0; setEditNumber(Math.min(10080, Math.max(0, n))); }}
-                        onBlur={() => setEditingExerciseText(false)}
-                        keyboardType="number-pad"
-                        autoFocus
-                        className="text-2xl font-semibold text-[#F5F5F5] text-center"
-                        style={{ minWidth: 80, padding: 0 }}
-                        selectTextOnFocus
-                      />
-                    ) : (
-                      <Text className="text-2xl font-semibold text-[#F5F5F5]">
-                        {editNumber} min
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.min(10080, editNumber + 10)); }}
-                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
-                    activeOpacity={0.6}
-                  >
-                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>+</Text>
-                  </TouchableOpacity>
+                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <Text className="text-2xl font-semibold text-[#F5F5F5]">{editNumber} min</Text>
+                  {editNumber >= 60 ? (
+                    <Text className="text-xs text-[#444444] mt-1">
+                      {Math.floor(editNumber / 60)}h{editNumber % 60 > 0 ? `${editNumber % 60}m` : ''} por semana
+                    </Text>
+                  ) : null}
                 </View>
-                <Text className="text-sm text-[#555555] text-center mb-3">
-                  {editNumber >= 60
-                    ? `${Math.floor(editNumber / 60)}h${editNumber % 60 > 0 ? `${editNumber % 60}m` : ''} por semana`
-                    : `${editNumber} minutos por semana`}
-                </Text>
+                <Slider
+                  style={{ width: '100%', height: 40 }}
+                  minimumValue={0}
+                  maximumValue={600}
+                  step={15}
+                  value={editNumber}
+                  onValueChange={setEditNumber}
+                  minimumTrackTintColor="#1D9E75"
+                  maximumTrackTintColor="#222222"
+                  thumbTintColor="#1D9E75"
+                />
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-xs text-[#444444]">0</Text>
+                  <Text className="text-xs text-[#444444]">300</Text>
+                  <Text className="text-xs text-[#444444]">600</Text>
+                </View>
                 <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
               </>
             )}
 
-            {/* Stepper: sleep */}
+            {/* Slider: sleep */}
             {field === 'sleep' && (
               <>
-                <View className="flex-row items-center justify-center py-3 mb-3" style={{ gap: 24 }}>
-                  <TouchableOpacity
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.max(3, Math.round((editNumber - 0.5) * 2) / 2)); }}
-                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
-                    activeOpacity={0.6}
-                  >
-                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>−</Text>
-                  </TouchableOpacity>
-                  <Text className="text-2xl font-semibold text-[#F5F5F5]" style={{ minWidth: 100, textAlign: 'center' }}>
-                    {formatSleepHours(editNumber)}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setEditNumber(Math.min(12, Math.round((editNumber + 0.5) * 2) / 2)); }}
-                    className="w-12 h-12 rounded-full bg-[#151515] items-center justify-center"
-                    activeOpacity={0.6}
-                  >
-                    <Text className="text-2xl text-[#F5F5F5] font-light" style={{ marginTop: -2 }}>+</Text>
-                  </TouchableOpacity>
+                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <Text className="text-2xl font-semibold text-[#F5F5F5]">{formatSleepHours(editNumber)}</Text>
+                </View>
+                <Slider
+                  style={{ width: '100%', height: 40 }}
+                  minimumValue={4}
+                  maximumValue={10}
+                  step={0.5}
+                  value={editNumber}
+                  onValueChange={setEditNumber}
+                  minimumTrackTintColor="#1D9E75"
+                  maximumTrackTintColor="#222222"
+                  thumbTintColor="#1D9E75"
+                />
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-xs text-[#444444]">4h</Text>
+                  <Text className="text-xs text-[#444444]">7h</Text>
+                  <Text className="text-xs text-[#444444]">10h</Text>
                 </View>
                 <InlineActions onCancel={cancelEdit} onSave={handleSaveField} saving={saving} />
               </>
@@ -554,6 +537,13 @@ export default function SettingsScreen() {
 
         {/* HISTÓRICO FAMILIAR */}
         <SectionHeader icon="heart-outline" label="Histórico familiar" />
+        {profileLoading && !profile ? (
+          <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow />
+            <SkeletonSettingsRow isLast />
+          </View>
+        ) : (
         <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
           {familyHistory.map((entry, i) => (
             <TouchableOpacity key={entry.id} onPress={() => handleRemoveFamily(entry.id)} activeOpacity={0.7}
@@ -581,7 +571,7 @@ export default function SettingsScreen() {
           {showFamilyForm && (
             <View className="px-4 pb-4 border-t border-[#151515]">
               <Text className="text-xs font-semibold text-[#555555] tracking-wider uppercase mt-3 mb-2">Familiar</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={true} className="mb-4">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
                 <View className="flex-row" style={{ gap: 6 }}>
                   {RELATIONSHIPS.map((r) => (
                     <TouchableOpacity key={r} onPress={() => setFamRelationship(r)}
@@ -593,7 +583,7 @@ export default function SettingsScreen() {
               </ScrollView>
 
               <Text className="text-xs font-semibold text-[#555555] tracking-wider uppercase mb-2">Evento</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={true} className="mb-4">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
                 <View className="flex-row" style={{ gap: 6 }}>
                   {EVENT_TYPES.map((e) => (
                     <TouchableOpacity key={e} onPress={() => setFamEventType(e)}
@@ -648,6 +638,7 @@ export default function SettingsScreen() {
             </View>
           )}
         </View>
+        )}
 
         {/* CONEXÕES */}
         <SectionHeader icon="link-outline" label="Conexões" />
@@ -814,7 +805,18 @@ export default function SettingsScreen() {
         <View className="bg-[#111111] rounded-2xl border border-[#151515] overflow-hidden">
           <SettingsRow label="Versão" value="1.0.0" />
           <SettingsRow label="Termos de serviço" onPress={() => Linking.openURL('https://heartline.app/terms')} />
-          <SettingsRow label="Política de privacidade" onPress={() => Linking.openURL('https://heartline.app/privacy')} isLast />
+          <SettingsRow label="Política de privacidade" onPress={() => Linking.openURL('https://heartline.app/privacy')} />
+          <SettingsRow
+            label="Rever onboarding"
+            icon="refresh-outline"
+            onPress={async () => {
+              if (!user) return;
+              await AsyncStorage.removeItem('has_seen_welcome');
+              await supabase.from('profiles').update({ onboarding_completed: false }).eq('id', user.id);
+              await supabase.auth.signOut();
+            }}
+            isLast
+          />
         </View>
 
         {/* Disclaimer */}

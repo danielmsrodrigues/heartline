@@ -9,6 +9,7 @@ import { AttentionBadge } from '@/components/attention-badge';
 import { Card } from '@/components/ui/Card';
 import { ATTENTION_COLORS } from '@/constants/colors';
 import { Skeleton, SkeletonDetailCard } from '@/components/ui/Skeleton';
+import { Shield, Sparkles } from 'lucide-react-native';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -226,7 +227,7 @@ function EvolutionChart({
 export default function BiomarkerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { familyHistory } = useProfile();
+  const { profile, familyHistory } = useProfile();
   const { biomarkers, loading: bioLoading } = useBiomarkers(familyHistory.length > 0);
 
   const biomarker = useMemo(
@@ -296,6 +297,67 @@ export default function BiomarkerDetailScreen() {
     }
     return null;
   }, [biomarker]);
+
+  // Personalized context based on profile + family history
+  const personalContext = useMemo(() => {
+    if (!biomarker || !profile) return null;
+    const hasFamily = familyHistory.length > 0;
+    const hasLifestyle = profile.exercise_minutes_per_week || profile.smoker !== null;
+    if (!hasFamily && !hasLifestyle) return null;
+
+    const name = biomarker.name;
+    const level = biomarker.attentionLevel;
+    const trend = biomarker.trend;
+    const exercise = profile.exercise_minutes_per_week;
+    const smoker = profile.smoker;
+    const exerciseStr = exercise ? `${exercise} min/semana de exercício` : null;
+    const smokerStr = smoker === false ? 'não fumador' : smoker === true ? 'fumador' : null;
+    const lifestyleParts = [exerciseStr, smokerStr].filter(Boolean);
+    const lifestyleStr = lifestyleParts.length > 0 ? lifestyleParts.join(', ') : null;
+
+    // Family events relevant to this biomarker
+    const familyEvents = familyHistory.map(f => {
+      const ageStr = f.event_age ? ` aos ${f.event_age} anos` : '';
+      return `${f.relationship} com ${f.event_type}${ageStr}`;
+    });
+    const familyStr = familyEvents.length > 0 ? familyEvents.join('; ') : null;
+
+    if (level === 'dentro_do_esperado' && hasFamily && isFamilyRelevant) {
+      const base = `Mesmo com historial familiar (${familyStr}), o teu ${name} está confortavelmente dentro do range de referência.`;
+      return lifestyleStr
+        ? `${base} O teu estilo de vida (${lifestyleStr}) contribui positivamente para isto.`
+        : base;
+    }
+
+    if ((level === 'a_acompanhar' || level === 'merece_atencao') && hasFamily && isFamilyRelevant) {
+      const base = `Com historial familiar (${familyStr}), vale a pena acompanhar a evolução do teu ${name} com o teu médico.`;
+      return trend === 'a_subir'
+        ? `${base} A tendência de subida torna este acompanhamento especialmente relevante.`
+        : base;
+    }
+
+    if (level === 'dentro_do_esperado' && lifestyleStr) {
+      return `O teu ${name} está dentro do range de referência. O teu estilo de vida (${lifestyleStr}) contribui para manter este valor.`;
+    }
+
+    if ((level === 'a_acompanhar' || level === 'merece_atencao') && lifestyleStr) {
+      return trend === 'a_subir'
+        ? `O teu ${name} mostra uma tendência de subida. Mesmo com ${lifestyleStr}, vale a pena partilhar esta evolução com o teu médico.`
+        : `O teu ${name} está perto do limite do range de referência. Manter o teu estilo de vida (${lifestyleStr}) é uma boa prática.`;
+    }
+
+    if (level === 'fora_do_range' && hasFamily && isFamilyRelevant) {
+      return `Com historial familiar (${familyStr}) e este valor fora do range de referência, faz sentido discutir o teu ${name} com o teu médico na próxima consulta.`;
+    }
+
+    if (level === 'fora_do_range' && lifestyleStr) {
+      return `O teu ${name} está fora do range de referência. Faz sentido partilhar este resultado com o teu médico para avaliar no contexto do teu perfil (${lifestyleStr}).`;
+    }
+
+    return null;
+  }, [biomarker, profile, familyHistory, isFamilyRelevant]);
+
+  const contextIsPositive = biomarker?.attentionLevel === 'dentro_do_esperado';
 
   const descriptions: Record<string, string> = {
     ldl: "O LDL (colesterol 'mau') transporta colesterol para as artérias. Valores elevados merecem acompanhamento, especialmente com histórico familiar.",
@@ -458,6 +520,28 @@ export default function BiomarkerDetailScreen() {
             {description}
           </Text>
         </Card>
+
+        {/* Personalized Context */}
+        {personalContext ? (
+          <Card className="p-5 mb-5">
+            <View className="flex-row items-center mb-3" style={{ gap: 12 }}>
+              <View
+                className="w-8 h-8 rounded-full items-center justify-center"
+                style={{ backgroundColor: contextIsPositive ? 'rgba(29,158,117,0.15)' : 'rgba(239,159,39,0.15)' }}
+              >
+                {contextIsPositive
+                  ? <Shield size={16} color="#1D9E75" />
+                  : <Sparkles size={16} color="#EF9F27" />}
+              </View>
+              <Text style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: '#555555', fontWeight: '600' }}>
+                O teu contexto
+              </Text>
+            </View>
+            <Text style={{ fontSize: 14, lineHeight: 22, color: '#CCCCCC' }}>
+              {personalContext}
+            </Text>
+          </Card>
+        ) : null}
 
         {/* Family History Note */}
         {isFamilyRelevant && (
