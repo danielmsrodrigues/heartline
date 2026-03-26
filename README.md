@@ -1,6 +1,6 @@
 # Heartline
 
-A native iOS app that helps young adults with cardiovascular family history understand their clinical exams in an integrated, longitudinal, and personalized way.
+A native iOS app that helps anyone understand their clinical exams in an integrated, longitudinal, and personalized way.
 
 ## What it does
 
