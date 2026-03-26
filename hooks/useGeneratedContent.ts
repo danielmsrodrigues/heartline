@@ -31,7 +31,7 @@ export function useGeneratedContent() {
 
   const fetchCached = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    if (!cards) setLoading(true);
 
     const { data: narrativeData } = await supabase
       .from("generated_content")

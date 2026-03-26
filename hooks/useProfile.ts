@@ -11,7 +11,7 @@ export function useProfile() {
 
   const fetchProfile = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    if (!profile) setLoading(true);
     const { data } = await supabase
       .from("profiles")
       .select("*")

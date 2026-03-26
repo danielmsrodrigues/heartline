@@ -35,7 +35,8 @@ export function useBiomarkers(hasFamilyHistory: boolean = false) {
 
   const fetchBiomarkers = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    // Only show loading on initial fetch, not on refetch
+    if (biomarkers.length === 0) setLoading(true);
 
     const { data: examsData } = await supabase
       .from("exams")

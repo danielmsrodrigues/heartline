@@ -608,7 +608,7 @@ export default function AddExamScreen() {
 
           {/* Gallery option */}
           <TouchableOpacity
-            onPress={handleDocument}
+            onPress={handleGallery}
             className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
             activeOpacity={0.7}
           >
@@ -621,7 +621,28 @@ export default function AddExamScreen() {
                   Escolher da galeria
                 </Text>
                 <Text className="text-sm text-[#555555] mt-0.5">
-                  Selecione uma imagem de exame existente
+                  Foto de um exame já guardada
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* File/PDF option */}
+          <TouchableOpacity
+            onPress={handleDocument}
+            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
+            activeOpacity={0.7}
+          >
+            <View className="flex-row items-center">
+              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
+                <Ionicons name="document-outline" size={24} color="#1D9E75" />
+              </View>
+              <View className="flex-1 ml-4">
+                <Text className="text-base font-semibold text-[#F5F5F5]">
+                  Importar ficheiro
+                </Text>
+                <Text className="text-sm text-[#555555] mt-0.5">
+                  PDF ou imagem dos Ficheiros
                 </Text>
               </View>
             </View>
