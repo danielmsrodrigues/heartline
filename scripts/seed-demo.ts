@@ -17,19 +17,26 @@
  * recording the add-exam flow). Re-running the script resets the demo account.
  */
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const email = process.env.DEMO_EMAIL ?? "demo@example.com";
 const withoutLatest = process.argv.includes("--without-latest");
 
-/** Uses the environment variable when set; otherwise asks in the terminal. */
+/**
+ * Uses the environment variable when set; otherwise asks in the terminal.
+ * What is typed is not echoed, so secrets do not stay in the scrollback.
+ */
 async function fromEnvOrPrompt(name: string, question: string): Promise<string> {
   const value = process.env[name]?.trim();
   if (value) return value;
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = (await rl.question(question)).trim();
+  process.stdout.write(question);
+  const muted = new Writable({ write: (_chunk, _encoding, done) => done() });
+  const rl = createInterface({ input: process.stdin, output: muted, terminal: true });
+  const answer = (await rl.question("")).trim();
   rl.close();
+  process.stdout.write("\n");
   if (!answer) {
     console.error(`Missing ${name}.`);
     process.exit(1);

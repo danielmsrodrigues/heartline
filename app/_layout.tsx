@@ -75,7 +75,8 @@ export default function RootLayout() {
 function RootNavigator() {
   const t = useTheme();
   const { session, loading } = useAuth();
-  const segments = useSegments();
+  // Sem os tipos de rotas gerados pelo Expo (no CI), o tuplo teria só um elemento.
+  const segments: string[] = useSegments();
   const router = useRouter();
   const [splashAnimDone, setSplashAnimDone] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
