@@ -90,6 +90,8 @@ export default function AddExamScreen() {
     if (storedConsent !== null && !alreadyConsented) setAskConsent(true);
   }, [storedConsent, alreadyConsented]);
   const hasConsent = alreadyConsented || accepted;
+  // O perfil pode chegar depois da primeira leitura: quem já consentiu não volta a ver a caixa.
+  const showConsentBox = askConsent && (accepted || !alreadyConsented);
 
   const nudge = useSharedValue(0);
   const nudgeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: nudge.value }] }));
@@ -296,7 +298,7 @@ export default function AddExamScreen() {
         <SmallOption icon="pencil" title="Inserir à mão" onPress={handleManual} />
       </View>
 
-      {askConsent && (
+      {showConsentBox && (
         <Animated.View style={[{ marginTop: 22, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 12 }, nudgeStyle]}>
           <PressableScale
             onPress={acceptConsent}
