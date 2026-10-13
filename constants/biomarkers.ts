@@ -1,3 +1,5 @@
+// Valores de partida para o input manual. O range que conta é o do laboratório:
+// o utilizador confirma-o com o que vem impresso no exame.
 export const COMMON_BIOMARKERS = [
   {
     name: "Colesterol Total",
@@ -18,7 +20,7 @@ export const COMMON_BIOMARKERS = [
     name_normalized: "hdl",
     unit: "mg/dL",
     ref_min: 40,
-    ref_max: 60,
+    ref_max: null,
   },
   {
     name: "Triglicéridos",
@@ -60,7 +62,7 @@ export const COMMON_BIOMARKERS = [
     name_normalized: "egfr",
     unit: "mL/min",
     ref_min: 90,
-    ref_max: 120,
+    ref_max: null,
   },
   {
     name: "TSH",
@@ -70,7 +72,7 @@ export const COMMON_BIOMARKERS = [
     ref_max: 4.0,
   },
   {
-    name: "Proteína C Reactiva",
+    name: "Proteína C Reativa",
     name_normalized: "crp",
     unit: "mg/L",
     ref_min: 0,

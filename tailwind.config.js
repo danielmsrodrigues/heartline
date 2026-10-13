@@ -7,26 +7,27 @@ module.exports = {
   presets: [require("nativewind/preset")],
   theme: {
     extend: {
+      // Paleta usada na app (ver também constants/colors.ts)
       colors: {
-        brand: '#E85D5D',
+        brand: '#1D9E75',
         surface: {
           bg: '#0A0A0A',
-          card: '#1A1A1A',
-          border: '#2A2A2A',
+          card: '#111111',
+          border: '#151515',
         },
         accent: {
           blue: '#4A90D9',
         },
         attention: {
-          ok: "#8CB369",
-          watch: "#F5A623",
-          warning: "#E8973A",
-          alert: "#D9534F",
+          ok: "#1D9E75",
+          watch: "#EF9F27",
+          warning: "#EF9F27",
+          alert: "#E24B4A",
         },
         txt: {
           primary: '#F5F5F5',
-          secondary: '#9CA3AF',
-          muted: '#6B7280',
+          secondary: '#888888',
+          muted: '#555555',
         },
       },
     },

@@ -131,7 +131,7 @@ export function useHealthKit() {
           { from: sevenDaysAgo, to: now }
         );
         if (steps.length > 0) {
-          const total = steps.reduce((sum, s) => sum + s.quantity, 0);
+          const total = steps.reduce((sum: number, s: { quantity: number }) => sum + s.quantity, 0);
           result.avgDailySteps = Math.round(total / 7);
         }
       } catch {}

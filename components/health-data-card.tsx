@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Card } from './ui/Card';
+import { Glass } from './ui/Glass';
 import { HealthData } from '@/hooks/useHealthKit';
 
 interface HealthDataCardProps {
@@ -50,7 +50,7 @@ export function HealthDataCard({
 
   if (!authorized) {
     return (
-      <Card className="mb-4">
+      <Glass style={{ marginBottom: 16 }} contentStyle={{ padding: 16 }}>
         <View className="flex-row items-center mb-2">
           <Ionicons name="heart-circle-outline" size={20} color="#1D9E75" />
           <Text className="text-base font-semibold text-[#F5F5F5] ml-2">
@@ -70,13 +70,13 @@ export function HealthDataCard({
             Ligar Apple Health
           </Text>
         </TouchableOpacity>
-      </Card>
+      </Glass>
     );
   }
 
   if (loading) {
     return (
-      <Card className="mb-4">
+      <Glass style={{ marginBottom: 16 }} contentStyle={{ padding: 16 }}>
         <View className="flex-row items-center">
           <Ionicons name="heart-circle-outline" size={20} color="#1D9E75" />
           <Text className="text-base font-semibold text-[#F5F5F5] ml-2">
@@ -84,7 +84,7 @@ export function HealthDataCard({
           </Text>
         </View>
         <Text className="text-sm text-[#555555] mt-2">A carregar dados...</Text>
-      </Card>
+      </Glass>
     );
   }
 
@@ -95,7 +95,7 @@ export function HealthDataCard({
     data.avgDailySteps != null;
 
   return (
-    <Card className="mb-4">
+    <Glass style={{ marginBottom: 16 }} contentStyle={{ padding: 16 }}>
       <View className="flex-row items-center mb-1">
         <Ionicons name="heart-circle-outline" size={20} color="#1D9E75" />
         <Text className="text-base font-semibold text-[#F5F5F5] ml-2">
@@ -149,6 +149,6 @@ export function HealthDataCard({
           )}
         </View>
       )}
-    </Card>
+    </Glass>
   );
 }

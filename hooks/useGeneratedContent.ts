@@ -1,6 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback } from "react";
+import { useIsMutating, useMutation, useMutationState, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryClient, queryKeys } from "@/lib/query";
 import { useAuth } from "./useAuth";
+import { cachedExamSignature, examSignature } from "./useBiomarkers";
 import { generateNarrative, generateQuestions } from "@/lib/ai";
 
 export interface InsightCards {
@@ -15,113 +18,151 @@ export interface FullAnalysis {
   full_family: string;
 }
 
-interface QuestionsContent {
-  questions: Array<{ question: string; context: string }>;
+type Question = { question: string; context: string };
+
+interface GeneratedData {
+  cards: InsightCards | null;
+  fullAnalysis: FullAnalysis | null;
+  questions: Question[];
+  generatedAt: string | null;
+  /** Exames em que a análise se baseou (ver examSignature); null se desconhecido. */
+  basedOnExams: string | null;
+}
+
+const EMPTY_QUESTIONS: Question[] = [];
+
+function toNarrative(content: any): Pick<GeneratedData, "cards" | "fullAnalysis"> {
+  // Formato antigo (texto corrido) não tem "insight": tratar como inexistente.
+  if (!content || typeof content !== "object" || !("insight" in content)) {
+    return { cards: null, fullAnalysis: null };
+  }
+  return {
+    cards: {
+      insight: content.insight ?? "",
+      positive: content.positive ?? "",
+      family_note: content.family_note ?? "",
+    },
+    fullAnalysis: {
+      full_insight: content.full_insight ?? "",
+      full_positive: content.full_positive ?? "",
+      full_family: content.full_family ?? "",
+    },
+  };
+}
+
+async function fetchCached(userId: string): Promise<GeneratedData> {
+  const latest = (type: "narrative" | "questions") =>
+    supabase
+      .from("generated_content")
+      .select("content, generated_at, based_on_exam_ids")
+      .eq("profile_id", userId)
+      .eq("content_type", type)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+  const [narrativeRes, questionsRes] = await Promise.all([latest("narrative"), latest("questions")]);
+  if (narrativeRes.error) throw narrativeRes.error;
+  if (questionsRes.error) throw questionsRes.error;
+
+  const narrative = toNarrative(narrativeRes.data?.content);
+  return {
+    ...narrative,
+    questions: (questionsRes.data?.content as any)?.questions ?? EMPTY_QUESTIONS,
+    generatedAt: narrative.cards ? narrativeRes.data?.generated_at ?? null : null,
+    basedOnExams:
+      narrative.cards && Array.isArray(narrativeRes.data?.based_on_exam_ids)
+        ? examSignature(narrativeRes.data.based_on_exam_ids)
+        : null,
+  };
+}
+
+// Uma geração de cada vez por utilizador, seja qual for o ecrã que a pediu.
+const inflight = new Map<string, Promise<void>>();
+// Pedidos que chegaram a meio de uma geração: essa já leu os dados antigos,
+// por isso corre-se mais uma vez no fim em vez de os descartar.
+const rerunRequested = new Set<string>();
+
+function runRegeneration(userId: string): Promise<void> {
+  const pending = inflight.get(userId);
+  if (pending) {
+    rerunRequested.add(userId);
+    return pending;
+  }
+
+  const run = (async () => {
+    do {
+      rerunRequested.delete(userId);
+      // Carimbo do início: o que mudar durante a geração continua a contar como mais recente.
+      const startedAt = new Date().toISOString();
+      const basedOnExams = cachedExamSignature(userId);
+      const [narrative, questions] = await Promise.all([
+        generateNarrative(),
+        generateQuestions(),
+      ]);
+      // Um refetch pendente traria a versão antiga por cima da nova.
+      await queryClient.cancelQueries({ queryKey: queryKeys.generated(userId) });
+      queryClient.setQueryData<GeneratedData>(queryKeys.generated(userId), {
+        ...toNarrative(narrative),
+        questions: questions.questions ?? EMPTY_QUESTIONS,
+        generatedAt: startedAt,
+        basedOnExams,
+      });
+    } while (rerunRequested.has(userId));
+  })().finally(() => {
+    inflight.delete(userId);
+    rerunRequested.delete(userId);
+  });
+  inflight.set(userId, run);
+  return run;
 }
 
 export function useGeneratedContent() {
   const { user } = useAuth();
-  const [cards, setCards] = useState<InsightCards | null>(null);
-  const [fullAnalysis, setFullAnalysis] = useState<FullAnalysis | null>(null);
-  const [questions, setQuestions] = useState<
-    Array<{ question: string; context: string }>
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const hasLoadedOnce = useRef(false);
+  const userId = user?.id;
+  const mutationKey = queryKeys.regenerate(userId);
 
-  const fetchCached = useCallback(async () => {
-    if (!user) return;
-    if (!hasLoadedOnce.current) setLoading(true);
+  const query = useQuery({
+    queryKey: queryKeys.generated(userId),
+    queryFn: () => fetchCached(userId!),
+    enabled: !!userId,
+  });
 
-    const { data: narrativeData } = await supabase
-      .from("generated_content")
-      .select("*")
-      .eq("profile_id", user.id)
-      .eq("content_type", "narrative")
-      .order("generated_at", { ascending: false })
-      .limit(1)
-      .single();
+  const { mutateAsync } = useMutation({
+    mutationKey,
+    mutationFn: () => runRegeneration(userId!),
+  });
 
-    let needsRegeneration = false;
-    if (narrativeData) {
-      const content = narrativeData.content as unknown as any;
-      if ('insight' in content) {
-        setCards({
-          insight: content.insight ?? '',
-          positive: content.positive ?? '',
-          family_note: content.family_note ?? '',
-        });
-        setFullAnalysis({
-          full_insight: content.full_insight ?? '',
-          full_positive: content.full_positive ?? '',
-          full_family: content.full_family ?? '',
-        });
-      } else {
-        // Old format — needs regeneration
-        needsRegeneration = true;
-      }
-    }
+  // Estado partilhado entre ecrãs: a geração pode ter sido pedida noutro lado.
+  const generating = useIsMutating({ mutationKey }) > 0;
+  const statuses = useMutationState({
+    filters: { mutationKey },
+    select: (mutation) => mutation.state.status,
+  });
+  const failed = !generating && statuses[statuses.length - 1] === "error";
 
-    const { data: questionsData } = await supabase
-      .from("generated_content")
-      .select("*")
-      .eq("profile_id", user.id)
-      .eq("content_type", "questions")
-      .order("generated_at", { ascending: false })
-      .limit(1)
-      .single();
+  const regenerate = useCallback(async () => {
+    if (!userId) return;
+    await mutateAsync();
+  }, [userId, mutateAsync]);
 
-    if (questionsData) {
-      setQuestions(
-        (questionsData.content as unknown as QuestionsContent).questions
-      );
-    }
-
-    hasLoadedOnce.current = true;
-    setLoading(false);
-    return needsRegeneration;
-  }, [user]);
-
-  useEffect(() => {
-    fetchCached().then((needsRegen) => {
-      if (needsRegen) regenerate();
-    });
-  }, [fetchCached]);
-
-  const regenerate = async () => {
-    if (!user) return;
-    setGenerating(true);
-    try {
-      const [narrativeResult, questionsResult] = await Promise.all([
-        generateNarrative(user.id),
-        generateQuestions(user.id),
-      ]);
-      setCards({
-        insight: narrativeResult.insight,
-        positive: narrativeResult.positive,
-        family_note: narrativeResult.family_note,
-      });
-      setFullAnalysis({
-        full_insight: narrativeResult.full_insight,
-        full_positive: narrativeResult.full_positive,
-        full_family: narrativeResult.full_family,
-      });
-      setQuestions(questionsResult.questions);
-    } catch (e) {
-      console.error("Error generating content:", e);
-    } finally {
-      setGenerating(false);
-    }
-  };
+  const { refetch } = query;
+  const refetchCached = useCallback(async () => {
+    // Não ir buscar a versão antiga à BD por cima de uma geração em curso.
+    if (userId && inflight.has(userId)) return;
+    await refetch();
+  }, [userId, refetch]);
 
   return {
-    cards,
-    fullAnalysis,
-    questions,
-    loading,
+    cards: query.data?.cards ?? null,
+    fullAnalysis: query.data?.fullAnalysis ?? null,
+    questions: query.data?.questions ?? EMPTY_QUESTIONS,
+    generatedAt: query.data?.generatedAt ?? null,
+    basedOnExams: query.data?.basedOnExams ?? null,
+    loading: !!userId && query.isPending,
     generating,
+    failed,
     regenerate,
-    refetch: fetchCached,
+    refetch: refetchCached,
   };
 }

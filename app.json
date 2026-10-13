@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "heartline",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -14,6 +14,11 @@
       "infoPlist": {
         "NSCameraUsageDescription": "O Heartline precisa de acesso à câmara para fotografar os teus exames clínicos.",
         "NSPhotoLibraryUsageDescription": "O Heartline precisa de acesso à galeria para importar fotos ou PDFs dos teus exames."
+      },
+      "icon": {
+        "dark": "./assets/images/icon.png",
+        "light": "./assets/images/icon-light.png",
+        "tinted": "./assets/images/icon-tinted.png"
       }
     },
     "android": {
@@ -42,15 +47,23 @@
         }
       ],
       "expo-web-browser",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-logo.png",
+          "imageWidth": 128,
+          "resizeMode": "contain",
+          "backgroundColor": "#F3F2F7",
+          "dark": {
+            "image": "./assets/images/splash-logo-dark.png",
+            "backgroundColor": "#100F19"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0A0A0A"
     }
   }
 }

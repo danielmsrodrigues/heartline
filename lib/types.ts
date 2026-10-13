@@ -1,12 +1,9 @@
-export type AttentionLevel =
-  | "dentro_do_esperado"
-  | "a_acompanhar"
-  | "merece_atencao"
-  | "fora_do_range";
-
-export type Trend = "a_subir" | "a_descer" | "estavel" | "sem_dados";
-
-export type RangeType = "bounded" | "max_only" | "min_only" | "none";
+export type {
+  AttentionLevel,
+  Trend,
+  RangeType,
+  BiomarkerWithScoring,
+} from "./scoring";
 
 export interface Profile {
   id: string;
@@ -18,6 +15,7 @@ export interface Profile {
   sedentary_work: boolean;
   sleep_hours_avg: number | null;
   onboarding_completed: boolean;
+  health_consent_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,11 +71,22 @@ export interface ExtractedMarker {
   unit: string;
   ref_min: number | null;
   ref_max: number | null;
-  confidence: "high" | "medium" | "low";
+  /** null em valores inseridos à mão. */
+  confidence: "high" | "medium" | "low" | null;
 }
 
 export interface ExtractionResult {
   lab_name: string | null;
   exam_date: string | null;
   markers: ExtractedMarker[];
+}
+
+/** Exame à espera de confirmação, passado do ecrã de origem para confirm-values. */
+export interface PendingExam extends ExtractionResult {
+  /** Ficheiro original (foto comprimida ou PDF) em disco. */
+  fileUri?: string;
+  fileMimeType?: string;
+  editExamId?: string;
+  /** Exame escrito à mão: começa sem valores e fica registado como manual. */
+  manual?: boolean;
 }

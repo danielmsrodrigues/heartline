@@ -1,30 +1,50 @@
-import { useState } from 'react';
-import { View, Text, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Input } from '@/components/ui/Input';
+import { haptics } from '@/lib/haptics';
+import { AuthScaffold } from '@/components/auth-scaffold';
+import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
+import { PasswordInput } from '@/components/ui/PasswordInput';
+import { Sub } from '@/components/ui/Text';
+
+type LinkStatus = 'checking' | 'ready' | 'invalid';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
+  // O link do email abre heartline://reset-password?code=… (fluxo PKCE)
+  const { code } = useLocalSearchParams<{ code?: string }>();
+  const [status, setStatus] = useState<LinkStatus>('checking');
+  const exchangedCode = useRef<string | null>(null);
+
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      if (code) {
+        // Cada código só pode ser trocado uma vez, mesmo que o efeito repita.
+        if (exchangedCode.current === code) return;
+        exchangedCode.current = code;
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (!exchangeError) {
+          setStatus('ready');
+          return;
+        }
+        // Link aberto pela segunda vez: o código já foi gasto, mas a sessão pode existir.
+      }
+      const { data } = await supabase.auth.getSession();
+      setStatus(data.session ? 'ready' : 'invalid');
+    })();
+  }, [code]);
+
   const handleReset = async () => {
-    if (!password || !confirmPassword) {
-      setError('Preenche ambos os campos.');
-      return;
-    }
     if (password.length < 6) {
-      setError('A palavra-passe deve ter pelo menos 6 caracteres.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('As palavras-passe não coincidem.');
+      haptics.warning();
+      setError('A palavra-passe tem de ter pelo menos 6 caracteres.');
       return;
     }
 
@@ -40,6 +60,7 @@ export default function ResetPasswordScreen() {
     if (updateError) {
       setError('Não foi possível atualizar a palavra-passe. Tenta novamente.');
     } else {
+      haptics.success();
       setSuccess(true);
       setTimeout(() => {
         router.replace('/(tabs)');
@@ -47,58 +68,36 @@ export default function ResetPasswordScreen() {
     }
   };
 
+  if (status === 'checking') {
+    return (
+      <AuthScaffold title="Nova palavra-passe" back={false}>
+        <Sub style={{ marginTop: 12, fontSize: 16 }}>A validar o link…</Sub>
+      </AuthScaffold>
+    );
+  }
+
+  if (status === 'invalid') {
+    return (
+      <AuthScaffold title="Nova palavra-passe" back={false}>
+        <Banner tone="out" text="Este link já não é válido. Pede um novo email de recuperação." />
+        <Button title="Pedir novo link" onPress={() => router.replace('/(auth)/forgot-password')} style={{ marginTop: 24 }} />
+      </AuthScaffold>
+    );
+  }
+
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View className="flex-1 justify-center px-6">
-            <Text className="text-2xl font-bold text-[#F5F5F5] text-center mb-2">
-              Nova palavra-passe
-            </Text>
-            <Text className="text-sm text-[#555555] text-center mb-8">
-              Introduz a tua nova palavra-passe.
-            </Text>
-
-            {error ? (
-              <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
-                <Text className="text-[#E24B4A] text-sm text-center">{error}</Text>
-              </View>
-            ) : null}
-
-            {success ? (
-              <View className="bg-[#1D9E75]/15 rounded-xl p-3 mb-4">
-                <Text className="text-[#1D9E75] text-sm text-center">
-                  Palavra-passe atualizada! A redirecionar...
-                </Text>
-              </View>
-            ) : (
-              <>
-                <Input
-                  label="Nova palavra-passe"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  placeholder="••••••••"
-                />
-                <Input
-                  label="Confirmar palavra-passe"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  placeholder="••••••••"
-                />
-                <Button title="Atualizar" onPress={handleReset} loading={loading} />
-              </>
-            )}
+    <AuthScaffold title="Nova palavra-passe" back={false}>
+      {error ? <Banner tone="out" text={error} /> : null}
+      {success ? (
+        <Banner tone="ok" title="Palavra-passe atualizada" text="A entrar na app…" />
+      ) : (
+        <>
+          <View style={{ marginTop: 10 }}>
+            <PasswordInput label="Nova palavra-passe" value={password} onChangeText={setPassword} placeholder="Escolhe uma palavra-passe" hint="Pelo menos 6 caracteres." isNew returnKeyType="go" onSubmitEditing={handleReset} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          <Button title="Atualizar" onPress={handleReset} loading={loading} style={{ marginTop: 24 }} />
+        </>
+      )}
+    </AuthScaffold>
   );
 }

@@ -1,498 +1,113 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  Dimensions,
-  TouchableOpacity,
-  ViewToken,
-  Image,
-  Animated,
-  Easing,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
-import Svg, { Defs, RadialGradient, Stop, Ellipse } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, { ZoomIn } from 'react-native-reanimated';
+import Svg, { Path, Rect } from 'react-native-svg';
+import { ON_VIVID, useTheme } from '@/constants/theme';
+import { useFloat } from '@/hooks/useFloat';
+import { Lockup } from '@/components/logo';
+import { Sparkline } from '@/components/sparkline';
+import { Button } from '@/components/ui/Button';
+import { riseIn } from '@/components/ui/enter';
+import { Glass } from '@/components/ui/Glass';
+import { Icon } from '@/components/ui/Icon';
+import { Screen } from '@/components/ui/Screen';
+import { DISCLAIMER, Note, Sub, Title } from '@/components/ui/Text';
 
-const { width } = Dimensions.get('window');
-
-const ORB_GREY = require('@/assets/images/orb-empty.png');
-const ORB_GREEN = require('@/assets/images/orb-good.png');
-
-// --- Subtle glow (simplified, no lava blobs) ---
-function SimpleGlow({ color, size, opacity = 0.25 }: { color: string; size: number; opacity?: number }) {
+/** Folha de exame: linhas de nomes e valores, com um deles em destaque. */
+function ExamSheet() {
+  const t = useTheme();
+  const rows = [64, 88, 112, 136, 160];
   return (
-    <View style={{ position: 'absolute', width: size, height: size, left: '50%', top: '50%', marginLeft: -size / 2, marginTop: -size / 2 }}>
-      <Svg width={size} height={size}>
-        <Defs>
-          <RadialGradient id="sg" cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={String(opacity)} />
-            <Stop offset="50%" stopColor={color} stopOpacity={String(opacity * 0.4)} />
-            <Stop offset="100%" stopColor={color} stopOpacity="0" />
-          </RadialGradient>
-        </Defs>
-        <Ellipse cx={size / 2} cy={size / 2} rx={size / 2} ry={size / 2} fill="url(#sg)" />
-      </Svg>
-    </View>
+    <Svg width={150} height={196} viewBox="0 0 150 196" fill="none">
+      <Rect x={1} y={1} width={148} height={194} rx={16} fill={t.paper} stroke={t.hairline} strokeWidth={1.5} />
+      <Path d="M20 34 H90" stroke={t.ink} strokeWidth={6} strokeLinecap="round" opacity={0.8} />
+      {rows.map((y) => (
+        <Path key={`name${y}`} d={`M20 ${y} H78`} stroke={t.sub} strokeWidth={5} strokeLinecap="round" opacity={0.4} />
+      ))}
+      {rows.map((y) => (
+        // O valor da terceira linha é o que a app vai destacar.
+        <Path key={`value${y}`} d={`M104 ${y} H130`} stroke={y === 112 ? t.dot.att : t.sub} strokeWidth={5} strokeLinecap="round" opacity={y === 112 ? 1 : 0.4} />
+      ))}
+    </Svg>
   );
 }
 
-// --- Particles (simplified, fewer) ---
-function WelcomeParticle({ color, containerSize, delay }: { color: string; containerSize: number; delay: number }) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const angle = useRef(Math.random() * Math.PI * 2).current;
-  const dist = useRef(35 + Math.random() * 55).current;
-  const x = Math.cos(angle) * dist;
-  const y = Math.sin(angle) * dist;
-  const size = 1.5 + Math.random() * 1.5;
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(opacity, { toValue: 0.4 + Math.random() * 0.3, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.delay(800 + Math.random() * 1200),
-          Animated.timing(opacity, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.delay(400 + Math.random() * 600),
-        ])
-      ).start();
-    }, delay);
-    return () => clearTimeout(t);
-  }, []);
+// A imagem mostra o que a app faz: a folha do exame passa a um valor explicado
+// e a perguntas para levar ao médico.
+function Hero() {
+  const t = useTheme();
+  const { width } = useWindowDimensions();
+  const sheetFloat = useFloat(0, 6);
+  const cardFloat = useFloat(500, 8);
+  const pillFloat = useFloat(900, 5);
+  const frame = Math.min(width - 48, 380);
 
   return (
-    <Animated.View
-      style={{
-        position: 'absolute',
-        left: containerSize / 2 + x - size / 2,
-        top: containerSize / 2 + y - size / 2,
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: color,
-        opacity,
-      }}
-    />
-  );
-}
-
-// --- Floating mini card with idle drift ---
-function FloatingMiniCard({ appearAnim, w1, w2, driftDuration, driftY }: {
-  appearAnim: Animated.Value; w1: number; w2: number; driftDuration: number; driftY: number;
-}) {
-  const float = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, { toValue: 1, duration: driftDuration / 2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(float, { toValue: 0, duration: driftDuration / 2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-
-  const translateY = Animated.add(
-    appearAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
-    float.interpolate({ inputRange: [0, 1], outputRange: [0, driftY] }),
-  );
-
-  return (
-    <Animated.View
-      style={{
-        opacity: appearAnim,
-        transform: [{ translateY }],
-        backgroundColor: '#111111',
-        borderRadius: 10,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        gap: 6,
-        borderWidth: 0.5,
-        borderColor: 'rgba(255,255,255,0.06)',
-      }}
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel="A folha do exame transforma-se num valor explicado e em perguntas para o médico"
+      style={{ width: frame, height: 340, alignSelf: 'center' }}
     >
-      <View style={{ width: w1, height: 8, borderRadius: 4, backgroundColor: '#333333' }} />
-      <View style={{ width: w2, height: 8, borderRadius: 4, backgroundColor: '#222222' }} />
-    </Animated.View>
-  );
-}
-
-// --- Slide 1: Grey orb pulse + staggered floating mini cards ---
-function Slide1({ active }: { active: boolean }) {
-  const card1 = useRef(new Animated.Value(0)).current;
-  const card2 = useRef(new Animated.Value(0)).current;
-  const card3 = useRef(new Animated.Value(0)).current;
-  const orbPulse = useRef(new Animated.Value(1)).current;
-  const hasPlayed = useRef(false);
-
-  useEffect(() => {
-    // Orb subtle pulse
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(orbPulse, { toValue: 1.04, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(orbPulse, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-
-  useEffect(() => {
-    if (active && !hasPlayed.current) {
-      hasPlayed.current = true;
-      const easeOut = Easing.out(Easing.ease);
-      Animated.stagger(200, [
-        Animated.timing(card1, { toValue: 1, duration: 400, easing: easeOut, useNativeDriver: true }),
-        Animated.timing(card2, { toValue: 1, duration: 400, easing: easeOut, useNativeDriver: true }),
-        Animated.timing(card3, { toValue: 1, duration: 400, easing: easeOut, useNativeDriver: true }),
-      ]).start();
-    }
-  }, [active]);
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      {/* Orb */}
-      <View style={{ width: 180, height: 180, alignItems: 'center', justifyContent: 'center' }}>
-        <SimpleGlow color="#888888" size={160} opacity={0.12} />
-        <Animated.View style={{ width: 100, height: 100, borderRadius: 50, overflow: 'hidden', transform: [{ scale: orbPulse }] }}>
-          <Image source={ORB_GREY} style={{ width: 100, height: 100 }} resizeMode="cover" />
+      <Animated.View entering={riseIn()} style={{ position: 'absolute', left: 10, top: 30 }}>
+        <Animated.View style={[{ transform: [{ rotate: '-8deg' }], shadowColor: '#15131F', shadowOpacity: 0.16, shadowRadius: 14, shadowOffset: { width: 0, height: 12 } }, sheetFloat]}>
+          <ExamSheet />
         </Animated.View>
-      </View>
-      {/* Floating mini cards */}
-      <View style={{ width: 200, gap: 8, marginTop: 8 }}>
-        <FloatingMiniCard appearAnim={card1} w1={120} w2={80} driftDuration={3000} driftY={-3} />
-        <FloatingMiniCard appearAnim={card2} w1={100} w2={70} driftDuration={3600} driftY={3} />
-        <FloatingMiniCard appearAnim={card3} w1={140} w2={60} driftDuration={4200} driftY={-2.5} />
-      </View>
-    </View>
-  );
-}
+      </Animated.View>
 
-// --- Slide 2: Grey → Green crossfade, then pulse + glow breathe ---
-function Slide2({ active }: { active: boolean }) {
-  const greenOpacity = useRef(new Animated.Value(0)).current;
-  const glowOpacity = useRef(new Animated.Value(0)).current;
-  const orbPulse = useRef(new Animated.Value(1)).current;
-  const glowBreath = useRef(new Animated.Value(0.3)).current;
-  const hasPlayed = useRef(false);
-
-  useEffect(() => {
-    // Continuous pulse (runs always, only visible once green)
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(orbPulse, { toValue: 1.04, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(orbPulse, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start();
-    // Glow breathing (runs always, modulated by glowOpacity)
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowBreath, { toValue: 0.5, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(glowBreath, { toValue: 0.2, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-
-  useEffect(() => {
-    if (active && !hasPlayed.current) {
-      hasPlayed.current = true;
-      Animated.sequence([
-        Animated.delay(400),
-        Animated.parallel([
-          Animated.timing(greenOpacity, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(glowOpacity, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ]),
-      ]).start();
-    }
-  }, [active]);
-
-  // Multiply glow visibility by breath intensity
-  const combinedGlow = Animated.multiply(glowOpacity, glowBreath);
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      <View style={{ width: 220, height: 220, alignItems: 'center', justifyContent: 'center' }}>
-        {/* Glow appears and breathes */}
-        <Animated.View style={{ position: 'absolute', opacity: combinedGlow, transform: [{ scale: orbPulse }] }}>
-          <SimpleGlow color="#1D9E75" size={220} opacity={1} />
+      <Animated.View entering={riseIn(260)} style={{ position: 'absolute', right: 2, top: 92, width: 168 }}>
+        <Animated.View style={[{ transform: [{ rotate: '4deg' }] }, cardFloat]}>
+          <Glass radius={28} contentStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14 }}>
+            <Text style={{ fontSize: 15, lineHeight: 20, fontWeight: '500', color: t.sub }}>Colesterol "mau"</Text>
+            <Text style={{ marginTop: 4, fontSize: 40, lineHeight: 44, fontWeight: '500', letterSpacing: -0.8, color: t.ink }}>
+              142<Text style={{ fontSize: 15, fontWeight: '400', letterSpacing: 0, color: t.sub }}> mg/dL</Text>
+            </Text>
+            <View style={{ marginTop: 10 }}>
+              <Sparkline data={[118, 121, 129, 136, 142]} color={t.dot.att} width={132} height={40} />
+            </View>
+            <Text style={{ marginTop: 6, fontSize: 13, lineHeight: 18, fontWeight: '600', color: t.level.att }}>A subir</Text>
+          </Glass>
         </Animated.View>
-        {/* Orb with pulse */}
-        <Animated.View style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', transform: [{ scale: orbPulse }] }}>
-          <Image source={ORB_GREY} style={{ width: 120, height: 120 }} resizeMode="cover" />
-          {/* Green orb crossfading on top */}
-          <Animated.View style={{ position: 'absolute', top: 0, left: 0, opacity: greenOpacity }}>
-            <Image source={ORB_GREEN} style={{ width: 120, height: 120 }} resizeMode="cover" />
-          </Animated.View>
-        </Animated.View>
-      </View>
-    </View>
-  );
-}
+      </Animated.View>
 
-// --- Rotating questions ---
-const SAMPLE_QUESTIONS = [
-  'O meu LDL tem vindo a subir — faz sentido acompanhar mais de perto?',
-  'Com historial familiar, vale a pena fazer análises com mais frequência?',
-  'O meu HDL está baixo — o exercício que faço é suficiente?',
-  'Os meus triglicéridos estão no limite — que mudanças fariam diferença?',
-];
+      <Animated.View entering={ZoomIn.delay(520).duration(320)} style={{ position: 'absolute', left: 146, top: 136, width: 44, height: 44, borderRadius: 22, backgroundColor: t.primaryBg, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name="arrow" size={18} color={t.primaryFg} weight="bold" />
+      </Animated.View>
 
-// --- Slide 3: Active green orb + particles + rotating questions ---
-function Slide3({ active }: { active: boolean }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const cardOpacity = useRef(new Animated.Value(0)).current;
-  const questionAnim = useRef(new Animated.Value(1)).current;
-  const [questionIdx, setQuestionIdx] = useState(0);
-  const hasPlayed = useRef(false);
-  const alive = useRef(true);
-
-  useEffect(() => {
-    alive.current = true;
-    // Pulse
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.03, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start();
-    return () => { alive.current = false; };
-  }, []);
-
-  useEffect(() => {
-    if (active && !hasPlayed.current) {
-      hasPlayed.current = true;
-      Animated.timing(cardOpacity, { toValue: 1, duration: 500, delay: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }).start();
-    }
-  }, [active]);
-
-  // Rotate questions
-  useEffect(() => {
-    if (!active) return;
-    const easeIO = Easing.inOut(Easing.ease);
-    const cycle = () => {
-      if (!alive.current) return;
-      setTimeout(() => {
-        if (!alive.current) return;
-        // Fade out
-        Animated.timing(questionAnim, { toValue: 0, duration: 300, easing: easeIO, useNativeDriver: true }).start(() => {
-          if (!alive.current) return;
-          setQuestionIdx(prev => (prev + 1) % SAMPLE_QUESTIONS.length);
-          // Fade in
-          Animated.timing(questionAnim, { toValue: 1, duration: 300, easing: easeIO, useNativeDriver: true }).start(() => cycle());
-        });
-      }, 3000);
-    };
-    cycle();
-  }, [active]);
-
-  const containerSize = 220;
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      <View style={{ width: containerSize, height: containerSize, alignItems: 'center', justifyContent: 'center' }}>
-        <SimpleGlow color="#1D9E75" size={220} opacity={0.35} />
-        {/* Particles */}
-        {Array.from({ length: 10 }, (_, i) => (
-          <WelcomeParticle key={i} color="#5DFFC2" containerSize={containerSize} delay={i * 300} />
-        ))}
-        {/* Orb */}
-        <Animated.View style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', transform: [{ scale }] }}>
-          <Image source={ORB_GREEN} style={{ width: 120, height: 120 }} resizeMode="cover" />
-        </Animated.View>
-      </View>
-      {/* Rotating question card */}
-      <Animated.View
-        style={{
-          opacity: cardOpacity,
-          marginTop: 8,
-          width: 240,
-          backgroundColor: '#111111',
-          borderRadius: 12,
-          padding: 14,
-          borderWidth: 0.5,
-          borderColor: 'rgba(29,158,117,0.15)',
-          minHeight: 72,
-        }}
-      >
-        <Text style={{ fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', color: '#555555', marginBottom: 6 }}>
-          Para o teu médico
-        </Text>
-        <Animated.View style={{ opacity: questionAnim, transform: [{ translateY: questionAnim.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }) }] }}>
-          <Text style={{ fontSize: 13, lineHeight: 19, color: '#D4D4D4', fontStyle: 'italic' }}>
-            "{SAMPLE_QUESTIONS[questionIdx]}"
-          </Text>
+      <Animated.View entering={riseIn(700)} style={{ position: 'absolute', left: 30, top: 266 }}>
+        <Animated.View style={[{ transform: [{ rotate: '-3deg' }] }, pillFloat]}>
+          <Glass tone="att" radius={28} contentStyle={{ height: 54, paddingLeft: 10, paddingRight: 20, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.pill, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="chat" size={18} color={t.pillFg} />
+            </View>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: ON_VIVID }}>3 perguntas para o médico</Text>
+          </Glass>
         </Animated.View>
       </Animated.View>
     </View>
   );
 }
 
-// --- Slide data ---
-const slides = [
-  {
-    id: '1',
-    title: 'Os teus exames, organizados',
-    description:
-      'Fotografa ou importa os teus exames clínicos. O Heartline extrai os valores automaticamente e organiza tudo num só lugar.',
-  },
-  {
-    id: '2',
-    title: 'Contexto, não números soltos',
-    description:
-      'A medicina analisa exames isoladamente. O Heartline cruza os teus dados ao longo do tempo, com o teu histórico familiar e estilo de vida.',
-  },
-  {
-    id: '3',
-    title: 'Melhores conversas com o teu médico',
-    description:
-      'Recebe perguntas personalizadas para a tua próxima consulta, baseadas nos teus dados concretos. Informação clara, ação concreta.',
-  },
-];
-
-function AnimatedDot({ index, scrollX }: { index: number; scrollX: Animated.Value }) {
-  const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
-
-  const dotWidth = scrollX.interpolate({
-    inputRange,
-    outputRange: [8, 24, 8],
-    extrapolate: 'clamp',
-  });
-
-  const dotOpacity = scrollX.interpolate({
-    inputRange,
-    outputRange: [0.3, 1, 0.3],
-    extrapolate: 'clamp',
-  });
-
-  const dotColor = scrollX.interpolate({
-    inputRange,
-    outputRange: ['#333333', '#1D9E75', '#333333'],
-    extrapolate: 'clamp',
-  });
-
-  return (
-    <Animated.View
-      style={{
-        width: dotWidth,
-        height: 8,
-        borderRadius: 4,
-        marginHorizontal: 4,
-        backgroundColor: dotColor,
-        opacity: dotOpacity,
-      }}
-    />
-  );
-}
-
 export default function WelcomeScreen() {
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(0)).current;
 
-  const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      if (viewableItems.length > 0 && viewableItems[0].index != null) {
-        const newIndex = viewableItems[0].index;
-        if (newIndex !== currentIndex) {
-          Haptics.selectionAsync();
-        }
-        setCurrentIndex(newIndex);
-      }
-    },
-    [currentIndex]
-  );
-
-  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
-
-  const handleNext = () => {
-    Haptics.selectionAsync();
-    if (currentIndex < slides.length - 1) {
-      flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
-    } else {
-      handleGetStarted();
-    }
-  };
-
-  const handleGetStarted = async () => {
+  const leave = async (target: '/(auth)/register' | '/(auth)/login') => {
     await AsyncStorage.setItem('has_seen_welcome', 'true');
-    router.replace('/(auth)/register');
+    router.replace(target);
   };
-
-  const handleSkip = async () => {
-    await AsyncStorage.setItem('has_seen_welcome', 'true');
-    router.replace('/(auth)/register');
-  };
-
-  const isLast = currentIndex === slides.length - 1;
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-      {/* Skip button */}
-      {!isLast && (
-        <TouchableOpacity
-          onPress={handleSkip}
-          className="absolute top-16 right-6 z-10"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text className="text-sm text-[#555555]">Saltar</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Slides */}
-      <FlatList
-        ref={flatListRef}
-        data={slides}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        bounces={false}
-        keyExtractor={(item) => item.id}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
-        renderItem={({ item, index }) => (
-          <View style={{ width }} className="flex-1 items-center justify-center px-10">
-            {/* Visual */}
-            <View style={{ marginBottom: 32 }}>
-              {index === 0 ? <Slide1 active={currentIndex === 0} /> : null}
-              {index === 1 ? <Slide2 active={currentIndex === 1} /> : null}
-              {index === 2 ? <Slide3 active={currentIndex === 2} /> : null}
-            </View>
-            {/* Copy */}
-            <Text className="text-2xl font-bold text-[#F5F5F5] text-center mb-4">
-              {item.title}
-            </Text>
-            <Text className="text-base text-[#888888] text-center leading-6">
-              {item.description}
-            </Text>
-          </View>
-        )}
-      />
-
-      {/* Bottom section */}
-      <View className="px-6 pb-4">
-        {/* Dots */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 32 }}>
-          {slides.map((_, i) => (
-            <AnimatedDot key={i} index={i} scrollX={scrollX} />
-          ))}
-        </View>
-
-        {/* Button */}
-        <TouchableOpacity
-          onPress={handleNext}
-          className="bg-[#1D9E75] rounded-xl py-4 items-center"
-          activeOpacity={0.8}
-        >
-          <Text className="text-white font-semibold text-base">
-            {isLast ? 'Começar' : 'Seguinte'}
-          </Text>
-        </TouchableOpacity>
+    <Screen tone="att" scroll={false} top={6} contentStyle={{ paddingBottom: 16 }}>
+      <Lockup size={30} />
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        <Hero />
+        <Title large style={{ marginTop: 18, fontSize: 36, lineHeight: 42 }}>Percebe as tuas análises</Title>
+        <Sub style={{ marginTop: 8, fontSize: 17, lineHeight: 25 }}>Fotografa o exame. Eu explico o resto.</Sub>
       </View>
-    </SafeAreaView>
+      <Button title="Criar conta" onPress={() => leave('/(auth)/register')} />
+      <Button variant="text" title="Já tenho conta" onPress={() => leave('/(auth)/login')} style={{ marginTop: 6 }} />
+      <Note style={{ marginTop: 6 }}>{DISCLAIMER}</Note>
+    </Screen>
   );
 }

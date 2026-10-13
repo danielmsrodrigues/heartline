@@ -1,36 +1,50 @@
-import { TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import { ActivityIndicator, StyleProp, Text, ViewStyle } from 'react-native';
+import { useTheme } from '@/constants/theme';
+import { haptics } from '@/lib/haptics';
+import { PressableScale } from './Glass';
+import { Icon, IconName } from './Icon';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'danger';
+  /** primary: ação principal do ecrã. text: ação secundária, sem fundo. danger: apagar. */
+  variant?: 'primary' | 'text' | 'danger';
   disabled?: boolean;
   loading?: boolean;
+  icon?: IconName;
+  style?: StyleProp<ViewStyle>;
 }
 
-export function Button({ title, onPress, variant = 'primary', disabled = false, loading = false }: ButtonProps) {
-  const baseClass = 'py-3.5 px-6 rounded-xl items-center justify-center flex-row';
-  const variantClass = {
-    primary: 'bg-[#1D9E75]',
-    secondary: 'bg-[#111111] border border-[#151515]',
-    danger: 'bg-[#E24B4A]/15 border border-[#E24B4A]/30',
-  }[variant];
-  const textClass = {
-    primary: 'text-white font-semibold text-base',
-    secondary: 'text-[#F5F5F5] font-semibold text-base',
-    danger: 'text-[#E24B4A] font-semibold text-base',
-  }[variant];
-  const disabledClass = disabled || loading ? 'opacity-50' : '';
-
+export function Button({ title, onPress, variant = 'primary', disabled = false, loading = false, icon, style }: ButtonProps) {
+  const t = useTheme();
+  const primary = variant === 'primary';
+  const color = primary ? t.primaryFg : variant === 'danger' ? t.level.out : t.link;
   return (
-    <TouchableOpacity
-      className={`${baseClass} ${variantClass} ${disabledClass}`}
-      onPress={onPress}
+    <PressableScale
+      onPress={() => {
+        // Só a ação principal vibra; as secundárias ficam em silêncio.
+        if (primary) haptics.press();
+        onPress();
+      }}
       disabled={disabled || loading}
-      activeOpacity={0.7}
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: disabled || loading }}
+      style={[
+        {
+          height: primary ? 56 : 48,
+          borderRadius: 28,
+          backgroundColor: primary ? t.primaryBg : 'transparent',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          paddingHorizontal: 20,
+        },
+        style,
+      ]}
     >
-      {loading && <ActivityIndicator size="small" color={variant === 'primary' ? '#fff' : '#888888'} style={{ marginRight: 8 }} />}
-      <Text className={textClass}>{title}</Text>
-    </TouchableOpacity>
+      {loading ? <ActivityIndicator size="small" color={color} /> : icon ? <Icon name={icon} size={19} color={color} /> : null}
+      <Text style={{ fontSize: primary ? 17 : 16, fontWeight: '600', color }}>{title}</Text>
+    </PressableScale>
   );
 }

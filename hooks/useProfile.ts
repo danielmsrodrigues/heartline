@@ -1,55 +1,72 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryKeys } from "@/lib/query";
 import { useAuth } from "./useAuth";
 import { Profile, FamilyHistoryEntry } from "@/lib/types";
 
+interface ProfileData {
+  profile: Profile | null;
+  familyHistory: FamilyHistoryEntry[];
+}
+
+async function fetchProfileData(userId: string): Promise<ProfileData> {
+  const [profileRes, familyRes] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+    supabase.from("family_history").select("*").eq("profile_id", userId).order("created_at"),
+  ]);
+  if (profileRes.error) throw profileRes.error;
+  if (familyRes.error) throw familyRes.error;
+  return { profile: profileRes.data, familyHistory: familyRes.data ?? [] };
+}
+
+const EMPTY_FAMILY: FamilyHistoryEntry[] = [];
+
 export function useProfile() {
   const { user } = useAuth();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [familyHistory, setFamilyHistory] = useState<FamilyHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const hasLoadedOnce = useRef(false);
+  const userId = user?.id;
+  const client = useQueryClient();
 
+  const query = useQuery({
+    queryKey: queryKeys.profile(userId),
+    queryFn: () => fetchProfileData(userId!),
+    enabled: !!userId,
+  });
+
+  const { refetch } = query;
   const fetchProfile = useCallback(async () => {
-    if (!user) return;
-    if (!hasLoadedOnce.current) setLoading(true);
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single();
-    setProfile(data);
-    const { data: family } = await supabase
-      .from("family_history")
-      .select("*")
-      .eq("profile_id", user.id);
-    setFamilyHistory(family ?? []);
-    hasLoadedOnce.current = true;
-    setLoading(false);
-  }, [user]);
-
-  useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
+    await refetch();
+  }, [refetch]);
 
   const updateProfile = async (updates: Partial<Profile>) => {
-    if (!user) return;
+    if (!userId) return;
+    // upsert: a linha pode não existir se o trigger de registo falhou.
     const { error } = await supabase
       .from("profiles")
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq("id", user.id);
-    if (!error) await fetchProfile();
+      .upsert({ id: userId, ...updates, updated_at: new Date().toISOString() });
+    if (!error) await client.invalidateQueries({ queryKey: queryKeys.profile(userId) });
     return error;
+  };
+
+  // O histórico familiar muda o scoring e a narrativa; tocar em updated_at
+  // é o que marca a análise em cache como desatualizada.
+  const touchProfile = async () => {
+    if (!userId) return;
+    await supabase
+      .from("profiles")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    await client.invalidateQueries({ queryKey: queryKeys.profile(userId) });
   };
 
   const addFamilyEntry = async (
     entry: Omit<FamilyHistoryEntry, "id" | "profile_id" | "created_at">
   ) => {
-    if (!user) return;
+    if (!userId) return;
     const { error } = await supabase
       .from("family_history")
-      .insert({ ...entry, profile_id: user.id });
-    if (!error) await fetchProfile();
+      .insert({ ...entry, profile_id: userId });
+    if (!error) await touchProfile();
     return error;
   };
 
@@ -58,14 +75,14 @@ export function useProfile() {
       .from("family_history")
       .delete()
       .eq("id", id);
-    if (!error) await fetchProfile();
+    if (!error) await touchProfile();
     return error;
   };
 
   return {
-    profile,
-    familyHistory,
-    loading,
+    profile: query.data?.profile ?? null,
+    familyHistory: query.data?.familyHistory ?? EMPTY_FAMILY,
+    loading: !!userId && query.isPending,
     updateProfile,
     addFamilyEntry,
     removeFamilyEntry,
