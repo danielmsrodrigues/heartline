@@ -1,4 +1,9 @@
-<p align="center"><img src="assets/images/logo.png" alt="Heartline" width="110"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/images/splash-logo-dark.png">
+    <img src="assets/images/splash-logo.png" alt="Heartline" width="120">
+  </picture>
+</p>
 
 <h1 align="center">Heartline</h1>
 
