@@ -1,480 +1,257 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  Linking,
-  Animated,
-  Easing,
-  PanResponder,
-} from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
 import { File as ExpoFile } from 'expo-file-system';
-import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '@/lib/supabase';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { useAuth } from '@/hooks/useAuth';
+import { useProfile } from '@/hooks/useProfile';
+import { useBiomarkers } from '@/hooks/useBiomarkers';
 import { extractExamFromImage } from '@/lib/ai';
-import { COMMON_BIOMARKERS } from '@/constants/biomarkers';
-import { Input } from '@/components/ui/Input';
+import { haptics } from '@/lib/haptics';
+import { PendingExam } from '@/lib/types';
+import { ON_VIVID, useTheme } from '@/constants/theme';
+import { ExtractionScreen } from '@/components/exam/extraction-screen';
+import { ScanIllustration } from '@/components/exam/scan-illustration';
+import { Mascot } from '@/components/mascot';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { DatePicker } from '@/components/ui/DatePicker';
+import { IconBubble } from '@/components/ui/Chip';
+import { Glass, PressableScale } from '@/components/ui/Glass';
+import { Icon, IconName } from '@/components/ui/Icon';
+import { Screen } from '@/components/ui/Screen';
+import { Sheet } from '@/components/ui/Sheet';
+import { Body, Sub, Title } from '@/components/ui/Text';
 
-type Mode = 'choose' | 'camera' | 'manual';
+type Mode = 'choose' | 'camera' | 'failed';
 
-interface ManualMarker {
-  templateIndex: number | null;
-  customName: string;
-  name_normalized: string;
-  value: string;
-  unit: string;
-  ref_min: string;
-  ref_max: string;
+const consentKey = (userId: string) => `health_consent_${userId}`;
+
+function SmallOption({ icon, title, onPress }: { icon: IconName; title: string; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Glass radius={28} onPress={onPress} accessibilityLabel={title} style={{ flex: 1 }} contentStyle={{ height: 128, padding: 16, justifyContent: 'space-between' }}>
+      <IconBubble icon={icon} size={48} />
+      <Text style={{ fontSize: 17, lineHeight: 22, fontWeight: '600', color: t.ink }}>{title}</Text>
+    </Glass>
+  );
 }
 
-const emptyManualMarker = (): ManualMarker => ({
-  templateIndex: null,
-  customName: '',
-  name_normalized: '',
-  value: '',
-  unit: '',
-  ref_min: '',
-  ref_max: '',
-});
+function Tip({ icon, label }: { icon: IconName; label: string }) {
+  const t = useTheme();
+  return (
+    <Glass radius={24} style={{ flex: 1 }} contentStyle={{ height: 112, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+      <IconBubble icon={icon} size={44} />
+      <Text style={{ fontSize: 13, lineHeight: 18, fontWeight: '600', color: t.ink }}>{label}</Text>
+    </Glass>
+  );
+}
 
 export default function AddExamScreen() {
+  const t = useTheme();
   const router = useRouter();
   const { user } = useAuth();
+  const { profile, updateProfile } = useProfile();
+  const { exams } = useBiomarkers();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [mode, setMode] = useState<Mode>('choose');
   const [extracting, setExtracting] = useState(false);
-  const [extractionError, setExtractionError] = useState('');
+  // Cada extração tem o seu número: cancelar a A e começar a B não deixa o
+  // resultado tardio da A abrir o ecrã de confirmação.
+  const extractionRun = useRef(0);
+  const extractionInFlight = useRef(false);
 
-  // Manual mode state
-  const [examDate, setExamDate] = useState<Date | null>(null);
-  const [labName, setLabName] = useState('');
-  const [markers, setMarkers] = useState<ManualMarker[]>([emptyManualMarker()]);
-  const [savingManual, setSavingManual] = useState(false);
+  // Ao voltar de confirm-values este ecrã ainda está montado: sair do modo de extração.
+  useFocusEffect(
+    useCallback(() => {
+      if (!extractionInFlight.current) setExtracting(false);
+    }, [])
+  );
 
-  // GDPR consent for first exam
-  const [consentGiven, setConsentGiven] = useState(false);
-  const [showConsent, setShowConsent] = useState(false);
-  const pendingAction = useRef<(() => void) | null>(null);
-
-  const checkAndRequestConsent = async (callback: () => void) => {
+  // Consentimento RGPD antes do primeiro exame. Quem já tem exames deu-o antes
+  // de este ficar registado no perfil.
+  const [storedConsent, setStoredConsent] = useState<boolean | null>(null);
+  const [accepted, setAccepted] = useState(false);
+  const [showConsentInfo, setShowConsentInfo] = useState(false);
+  useEffect(() => {
     if (!user) return;
-    const { count } = await supabase
-      .from('exams')
-      .select('*', { count: 'exact', head: true })
-      .eq('profile_id', user.id);
+    AsyncStorage.getItem(consentKey(user.id)).then((value) => setStoredConsent(value != null));
+  }, [user]);
+  const alreadyConsented = !!profile?.health_consent_at || exams.length > 0 || storedConsent === true;
+  // A caixa só aparece a quem ainda não consentiu, e fica visível (marcada) até sair do ecrã.
+  const [askConsent, setAskConsent] = useState(false);
+  useEffect(() => {
+    if (storedConsent !== null && !alreadyConsented) setAskConsent(true);
+  }, [storedConsent, alreadyConsented]);
+  const hasConsent = alreadyConsented || accepted;
+  // O perfil pode chegar depois da primeira leitura: quem já consentiu não volta a ver a caixa.
+  const showConsentBox = askConsent && (accepted || !alreadyConsented);
 
-    if (count && count > 0) {
-      callback();
-    } else if (consentGiven) {
-      callback();
-    } else {
-      pendingAction.current = callback;
-      setShowConsent(true);
+  const nudge = useSharedValue(0);
+  const nudgeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: nudge.value }] }));
+
+  const acceptConsent = async () => {
+    if (!user || accepted) return;
+    haptics.select();
+    setAccepted(true);
+    const consentedAt = new Date().toISOString();
+    // A cópia local garante que não voltamos a perguntar se a rede falhar.
+    await AsyncStorage.setItem(consentKey(user.id), consentedAt);
+    const error = await updateProfile({ health_consent_at: consentedAt });
+    if (error) console.warn('Não foi possível registar o consentimento:', error.message);
+  };
+
+  /** Só avança com consentimento; sem ele, chama a atenção para a caixa. */
+  const withConsent = (action: () => void) => {
+    if (hasConsent) {
+      action();
+      return;
     }
+    haptics.warning();
+    nudge.value = withSequence(
+      withTiming(-8, { duration: 60 }),
+      withTiming(8, { duration: 90 }),
+      withTiming(-5, { duration: 80 }),
+      withTiming(0, { duration: 70 })
+    );
+  };
+
+  const cancelExtraction = () => {
+    extractionRun.current += 1;
+    extractionInFlight.current = false;
+    setExtracting(false);
+    setMode('choose');
   };
 
   const processFile = async (uri: string, mimeType: string = 'image/jpeg') => {
+    const run = ++extractionRun.current;
+    const cancelled = () => extractionRun.current !== run;
+    extractionInFlight.current = true;
     setExtracting(true);
-    setExtractionError('');
 
     try {
       let base64: string;
-      let finalMimeType = mimeType;
+      let fileUri = uri;
+      let fileMimeType = mimeType;
 
       if (mimeType === 'application/pdf') {
-        // Read PDF directly as base64 (no image manipulation)
-        const file = new ExpoFile(uri);
-        base64 = await file.base64();
-        console.log('PDF base64 length:', base64.length);
+        base64 = await new ExpoFile(uri).base64();
       } else {
-        // Compress image and get base64
         const manipulated = await ImageManipulator.manipulateAsync(
           uri,
           [{ resize: { width: 1500 } }],
           { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         base64 = manipulated.base64 ?? '';
-        finalMimeType = 'image/jpeg';
+        fileUri = manipulated.uri;
+        fileMimeType = 'image/jpeg';
+      }
+      if (cancelled()) return;
+
+      const result = await extractExamFromImage(base64, fileMimeType);
+      if (cancelled()) return;
+
+      if (!result?.markers || result.markers.length === 0) {
+        throw new Error('Não encontrei valores neste exame.');
       }
 
-      // Call extraction
-      const result = await extractExamFromImage(base64, finalMimeType);
-
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Store data in AsyncStorage and navigate
-      await AsyncStorage.setItem(
-        'pending_exam_data',
-        JSON.stringify({
-          ...result,
-          imageUri: mimeType !== 'application/pdf' ? uri : undefined,
-        })
-      );
-      router.push('/confirm-values' as any);
-    } catch (err) {
-      console.error('Extraction error:', err);
-      setExtractionError(
-        'Não foi possível extrair os valores. Tenta novamente ou usa o modo manual.'
-      );
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
+      // Guardar antes de mexer no estado: confirm-values lê daqui.
+      const pending: PendingExam = { ...result, fileUri, fileMimeType };
+      await AsyncStorage.setItem('pending_exam_data', JSON.stringify(pending));
+      haptics.success();
+      // Navegar primeiro — sem setExtracting(false), ou as opções piscam por baixo da transição.
+      router.push('/confirm-values');
+    } catch (err: any) {
+      if (cancelled()) return;
+      console.warn('Extraction error:', err?.message ?? err);
+      haptics.warning();
       setExtracting(false);
+      setMode('failed');
+    } finally {
+      if (!cancelled()) extractionInFlight.current = false;
     }
   };
 
-  const handleCamera = async () => {
+  const handleCamera = () => withConsent(async () => {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert(
-          'Permissão necessária',
-          'Para fotografar exames, a app precisa de acesso à câmara.'
-        );
+        Alert.alert('Permissão necessária', 'Para fotografar exames, a app precisa de acesso à câmara.');
         return;
       }
     }
-    checkAndRequestConsent(() => setMode('camera'));
+    setMode('camera');
+  });
+
+  const pickPhoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (!result.canceled && result.assets[0]) await processFile(result.assets[0].uri, 'image/jpeg');
   };
 
-  const handleGallery = async () => {
-    checkAndRequestConsent(async () => {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        await processFile(result.assets[0].uri, 'image/jpeg');
-      }
-    });
+  const pickDocument = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ type: ['image/*', 'application/pdf'], copyToCacheDirectory: true });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      const isPdf = asset.mimeType === 'application/pdf' || asset.uri.toLowerCase().endsWith('.pdf');
+      await processFile(asset.uri, isPdf ? 'application/pdf' : 'image/jpeg');
+    }
   };
 
-  const handleDocument = async () => {
-    checkAndRequestConsent(async () => {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/*', 'application/pdf'],
-        copyToCacheDirectory: true,
-      });
+  const handleImport = () => withConsent(() => {
+    Alert.alert('Importar exame', undefined, [
+      { text: 'Das fotografias', onPress: pickPhoto },
+      { text: 'Dos ficheiros (PDF)', onPress: pickDocument },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  });
 
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        const isPdf = asset.mimeType === 'application/pdf' ||
-          asset.uri.toLowerCase().endsWith('.pdf');
-        await processFile(asset.uri, isPdf ? 'application/pdf' : 'image/jpeg');
-      }
-    });
-  };
+  // À mão usa o mesmo ecrã de confirmação, a começar sem valores.
+  const handleManual = () => withConsent(async () => {
+    const pending: PendingExam = { lab_name: null, exam_date: null, markers: [], manual: true };
+    await AsyncStorage.setItem('pending_exam_data', JSON.stringify(pending));
+    router.push('/confirm-values');
+  });
 
   const handleTakePhoto = async () => {
     if (!cameraRef.current) return;
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-      });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo) {
+        haptics.press();
         setMode('choose');
         await processFile(photo.uri, 'image/jpeg');
       }
     } catch (err) {
       console.error('Photo error:', err);
-      Alert.alert('Erro', 'Não foi possível tirar a foto. Tenta novamente.');
+      Alert.alert('Erro', 'Não foi possível tirar a fotografia. Tenta novamente.');
     }
   };
 
-  const handleManual = () => {
-    checkAndRequestConsent(() => setMode('manual'));
-  };
+  if (extracting) return <ExtractionScreen onCancel={cancelExtraction} />;
 
-  const updateMarker = (
-    index: number,
-    field: keyof ManualMarker,
-    value: string | number | null
-  ) => {
-    setMarkers((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
-  };
-
-  const selectTemplate = (markerIndex: number, templateIndex: number) => {
-    const template = COMMON_BIOMARKERS[templateIndex];
-    setMarkers((prev) => {
-      const updated = [...prev];
-      updated[markerIndex] = {
-        ...updated[markerIndex],
-        templateIndex,
-        customName: template.name,
-        name_normalized: template.name_normalized,
-        unit: template.unit,
-        ref_min: template.ref_min != null ? String(template.ref_min) : '',
-        ref_max: template.ref_max != null ? String(template.ref_max) : '',
-      };
-      return updated;
-    });
-  };
-
-  const addManualMarker = () => {
-    setMarkers((prev) => [...prev, emptyManualMarker()]);
-  };
-
-  const removeManualMarker = (index: number) => {
-    if (markers.length <= 1) return;
-    setMarkers((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSaveManual = async () => {
-    if (!user) return;
-    if (!examDate) {
-      Alert.alert('Data em falta', 'Indica a data do exame.');
-      return;
-    }
-
-    const validMarkers = markers.filter(
-      (m) => (m.customName || m.name_normalized) && m.value
-    );
-    if (validMarkers.length === 0) {
-      Alert.alert(
-        'Sem biomarcadores',
-        'Adiciona pelo menos um biomarcador com nome e valor.'
-      );
-      return;
-    }
-
-    setSavingManual(true);
-
-    try {
-      // Create exam
-      const { data: examData, error: examError } = await supabase
-        .from('exams')
-        .insert({
-          profile_id: user.id,
-          lab_name: labName.trim() || null,
-          exam_date: examDate!.toISOString().split('T')[0],
-          extraction_method: 'manual',
-        })
-        .select()
-        .single();
-
-      if (examError || !examData) throw examError;
-
-      // Insert biomarkers
-      const biomarkersToInsert = validMarkers.map((m) => ({
-        exam_id: examData.id,
-        profile_id: user.id,
-        name: m.customName || m.name_normalized,
-        name_normalized:
-          m.name_normalized ||
-          m.customName
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/\s+/g, '_'),
-        value: parseFloat(m.value),
-        unit: m.unit || 'mg/dL',
-        ref_min: m.ref_min ? parseFloat(m.ref_min) : null,
-        ref_max: m.ref_max ? parseFloat(m.ref_max) : null,
-        ai_confidence: null,
-        user_confirmed: true,
-      }));
-
-      const { error: markersError } = await supabase
-        .from('biomarkers')
-        .insert(biomarkersToInsert);
-
-      if (markersError) throw markersError;
-
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Reset form
-      setMode('choose');
-      setExamDate(null);
-      setLabName('');
-      setMarkers([emptyManualMarker()]);
-
-      router.push('/(tabs)');
-    } catch (err) {
-      console.error('Save error:', err);
-      Alert.alert('Erro', 'Não foi possível guardar o exame. Tenta novamente.');
-    } finally {
-      setSavingManual(false);
-    }
-  };
-
-  // GDPR Consent bottom sheet — draggable, clamped at top, dismiss on drag down
-  const sheetY = useRef(new Animated.Value(400)).current;
-  const dragOffset = useRef(0);
-
-  useEffect(() => {
-    if (showConsent && !consentGiven) {
-      sheetY.setValue(400);
-      Animated.spring(sheetY, { toValue: 0, speed: 14, bounciness: 4, useNativeDriver: true }).start();
-    }
-  }, [showConsent, consentGiven]);
-
-  const dismissConsent = () => {
-    Animated.timing(sheetY, { toValue: 400, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }).start(() => {
-      setShowConsent(false);
-      pendingAction.current = null;
-    });
-  };
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5,
-    onPanResponderGrant: () => {
-      sheetY.stopAnimation((v) => { dragOffset.current = v; });
-    },
-    onPanResponderMove: (_, g) => {
-      // Clamp: can't go above 0 (original position), free to go down
-      const newY = Math.max(0, dragOffset.current + g.dy);
-      sheetY.setValue(newY);
-    },
-    onPanResponderRelease: (_, g) => {
-      if (g.dy > 80 || g.vy > 0.5) {
-        // Dragged far enough or fast enough → dismiss
-        dismissConsent();
-      } else {
-        // Snap back
-        Animated.spring(sheetY, { toValue: 0, speed: 20, bounciness: 6, useNativeDriver: true }).start();
-      }
-    },
-  }), []);
-
-  const deferredAction = useRef<(() => void) | null>(null);
-
-  const handleConsent = () => {
-    deferredAction.current = pendingAction.current;
-    pendingAction.current = null;
-    setConsentGiven(true);
-    setShowConsent(false);
-  };
-
-  const consentSheet = (
-    <Modal
-      visible={showConsent && !consentGiven}
-      transparent
-      animationType="fade"
-      onRequestClose={dismissConsent}
-      onDismiss={() => {
-        if (deferredAction.current) {
-          const action = deferredAction.current;
-          deferredAction.current = null;
-          action();
-        }
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        {/* Backdrop — tap to dismiss */}
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={dismissConsent}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}
-        />
-        {/* Sheet */}
-        <Animated.View
-          style={{
-            backgroundColor: '#111111',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 24,
-            paddingBottom: 40,
-            transform: [{ translateY: sheetY }],
-          }}
-        >
-          {/* Drag handle */}
-          <View {...panResponder.panHandlers} style={{ paddingVertical: 10, marginTop: -10, marginBottom: 10 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: '#333333', alignSelf: 'center' }} />
-          </View>
-          <Ionicons name="shield-checkmark-outline" size={24} color="#1D9E75" style={{ alignSelf: 'center', marginBottom: 12 }} />
-          <Text style={{ fontSize: 18, fontWeight: '700', color: '#FFFFFF', textAlign: 'center', marginBottom: 12 }}>
-            Antes de começar
-          </Text>
-          <Text style={{ fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 21, marginBottom: 24 }}>
-            Para analisar os teus exames, processamos dados de saúde com IA. Tudo é encriptado na UE e podes apagar a qualquer momento.
-          </Text>
-          <TouchableOpacity
-            onPress={handleConsent}
-            activeOpacity={0.8}
-            style={{ backgroundColor: '#1D9E75', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 12 }}
-          >
-            <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>Autorizo e continuar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => Linking.openURL('https://heartline.app/privacy')}
-            activeOpacity={0.7}
-          >
-            <Text style={{ fontSize: 12, color: '#555555', textAlign: 'center' }}>
-              Saber mais sobre privacidade
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-
-  // Extracting overlay
-  if (extracting) {
-    return (
-      <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-        <View className="flex-1 items-center justify-center px-6">
-          <ActivityIndicator size="large" color="#1D9E75" />
-          <Text className="text-base font-semibold text-[#F5F5F5] mt-4">
-            A extrair valores...
-          </Text>
-          <Text className="text-sm text-[#555555] mt-2 text-center">
-            Estamos a analisar o teu exame. Pode demorar alguns segundos.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Camera mode
   if (mode === 'camera') {
     return (
-      <View className="flex-1 bg-black">
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
         <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back">
-          <SafeAreaView className="flex-1">
-            <View className="flex-row justify-between items-center px-4 pt-2">
-              <TouchableOpacity
-                onPress={() => setMode('choose')}
-                className="bg-black/50 rounded-full p-2"
-              >
-                <Ionicons name="close" size={24} color="white" />
-              </TouchableOpacity>
-              <Text className="text-white text-sm font-medium">
-                Enquadra o exame
-              </Text>
-              <View style={{ width: 40 }} />
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
+              <PressableScale onPress={() => setMode('choose')} accessibilityLabel="Fechar câmara" style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="close" size={18} color="#FFF" weight="bold" />
+              </PressableScale>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFF' }}>Enquadra a folha inteira</Text>
+              <View style={{ width: 44 }} />
             </View>
-            <View className="flex-1" />
-            <View className="items-center pb-8">
-              <TouchableOpacity
-                onPress={handleTakePhoto}
-                className="w-20 h-20 rounded-full border-4 border-white items-center justify-center"
-              >
-                <View className="w-16 h-16 rounded-full bg-white" />
-              </TouchableOpacity>
+            <View style={{ flex: 1 }} />
+            <View style={{ alignItems: 'center', paddingBottom: 96 }}>
+              <PressableScale onPress={handleTakePhoto} accessibilityLabel="Tirar fotografia" pressedScale={0.92} style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#FFF' }} />
+              </PressableScale>
             </View>
           </SafeAreaView>
         </CameraView>
@@ -482,284 +259,73 @@ export default function AddExamScreen() {
     );
   }
 
-  // Manual mode
-  if (mode === 'manual') {
+  if (mode === 'failed') {
     return (
-      <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View className="px-6 pt-6">
-            <View className="flex-row items-center mb-6">
-              <TouchableOpacity onPress={() => setMode('choose')}>
-                <Ionicons name="arrow-back" size={24} color="#F5F5F5" />
-              </TouchableOpacity>
-              <Text className="text-2xl font-bold text-[#F5F5F5] ml-3">
-                Input manual
-              </Text>
-            </View>
-
-            <DatePicker
-              label="Data do exame"
-              value={examDate}
-              onChange={setExamDate}
-              maximumDate={new Date()}
-              minimumDate={new Date(2000, 0, 1)}
-            />
-            <Input
-              label="Laboratório (opcional)"
-              value={labName}
-              onChangeText={setLabName}
-              placeholder="Nome do laboratório"
-              autoComplete="off"
-              textContentType="none"
-            />
-
-            <Text className="text-base font-semibold text-[#F5F5F5] mt-4 mb-3">
-              Biomarcadores
-            </Text>
-
-            {markers.map((marker, index) => (
-              <Card key={index} className="mb-3">
-                <View className="flex-row items-center justify-between mb-2">
-                  <Text className="text-sm font-semibold text-[#F5F5F5]">
-                    Biomarcador {index + 1}
-                  </Text>
-                  {markers.length > 1 && (
-                    <TouchableOpacity
-                      onPress={() => removeManualMarker(index)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons
-                        name="close-circle"
-                        size={20}
-                        color="#555555"
-                      />
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* Template selector */}
-                <Text className="text-xs text-[#555555] mb-1.5">
-                  Seleciona ou escreve o nome
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  className="mb-2"
-                >
-                  {COMMON_BIOMARKERS.map((tmpl, ti) => (
-                    <TouchableOpacity
-                      key={ti}
-                      onPress={() => selectTemplate(index, ti)}
-                      className={`px-2.5 py-1.5 rounded-lg mr-1.5 border ${
-                        marker.templateIndex === ti
-                          ? 'bg-[#1D9E75] border-[#1D9E75]'
-                          : 'bg-[#0A0A0A] border-[#151515]'
-                      }`}
-                    >
-                      <Text
-                        className={`text-xs ${
-                          marker.templateIndex === ti
-                            ? 'text-white font-medium'
-                            : 'text-[#888888]'
-                        }`}
-                      >
-                        {tmpl.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                {marker.templateIndex === null && (
-                  <Input
-                    label="Nome do biomarcador"
-                    value={marker.customName}
-                    onChangeText={(text) =>
-                      updateMarker(index, 'customName', text)
-                    }
-                    placeholder="Ex: Colesterol LDL"
-                  />
-                )}
-
-                <View className="flex-row">
-                  <View className="flex-1 mr-2">
-                    <Input
-                      label="Valor"
-                      value={marker.value}
-                      onChangeText={(text) =>
-                        updateMarker(index, 'value', text)
-                      }
-                      placeholder="0"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                  <View className="w-24">
-                    <Input
-                      label="Unidade"
-                      value={marker.unit}
-                      onChangeText={(text) =>
-                        updateMarker(index, 'unit', text)
-                      }
-                      placeholder="mg/dL"
-                    />
-                  </View>
-                </View>
-
-                <View className="flex-row">
-                  <View className="flex-1 mr-2">
-                    <Input
-                      label="Ref. mín (opcional)"
-                      value={marker.ref_min}
-                      onChangeText={(text) =>
-                        updateMarker(index, 'ref_min', text)
-                      }
-                      placeholder="0"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <Input
-                      label="Ref. máx (opcional)"
-                      value={marker.ref_max}
-                      onChangeText={(text) =>
-                        updateMarker(index, 'ref_max', text)
-                      }
-                      placeholder="0"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                </View>
-              </Card>
-            ))}
-
-            <TouchableOpacity
-              onPress={addManualMarker}
-              className="flex-row items-center justify-center py-3 mb-4 border border-dashed border-[#151515] rounded-xl"
-            >
-              <Ionicons name="add-circle-outline" size={20} color="#1D9E75" />
-              <Text className="text-sm font-medium text-[#1D9E75] ml-2">
-                Adicionar biomarcador
-              </Text>
-            </TouchableOpacity>
-
-            <Button
-              title="Guardar exame"
-              onPress={handleSaveManual}
-              loading={savingManual}
-            />
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+      <Screen inTabs tone="watch" scroll={false} contentStyle={{ justifyContent: 'center', paddingBottom: 110 }}>
+        <View style={{ alignItems: 'center' }}>
+          <Mascot size={168} reading interactive />
+        </View>
+        <Title style={{ marginTop: 24, textAlign: 'center' }}>Não consegui ler este exame</Title>
+        <Sub style={{ marginTop: 8, textAlign: 'center', fontSize: 16, lineHeight: 23 }}>Tenta outra fotografia:</Sub>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+          <Tip icon="sun" label="Boa luz" />
+          <Tip icon="frame" label="Folha inteira" />
+          <Tip icon="doc" label="Uma página" />
+        </View>
+        <Button title="Tentar de novo" icon="retry" onPress={() => setMode('choose')} style={{ marginTop: 28 }} />
+        <Button variant="text" title="Inserir à mão" onPress={() => { setMode('choose'); handleManual(); }} style={{ marginTop: 6 }} />
+      </Screen>
     );
   }
 
-  // Choose mode (default)
   return (
-    <View className="flex-1 bg-[#0A0A0A]">
-      {consentSheet}
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <View className="px-6 pt-2">
+    <Screen inTabs top={12}>
+      <Title large>Adicionar exame</Title>
 
-          {extractionError ? (
-            <View className="bg-[#E24B4A]/15 rounded-xl p-3 mb-4">
-              <Text className="text-[#E24B4A] text-sm text-center">
-                {extractionError}
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Camera option */}
-          <TouchableOpacity
-            onPress={handleCamera}
-            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
-            activeOpacity={0.7}
-          >
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
-                <Ionicons name="camera-outline" size={24} color="#1D9E75" />
-              </View>
-              <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-[#F5F5F5]">
-                  Fotografar exame
-                </Text>
-                <Text className="text-sm text-[#555555] mt-0.5">
-                  Tira uma foto do seu exame e nós extraímos os dados
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* Gallery option */}
-          <TouchableOpacity
-            onPress={handleGallery}
-            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
-            activeOpacity={0.7}
-          >
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
-                <Ionicons name="images-outline" size={24} color="#1D9E75" />
-              </View>
-              <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-[#F5F5F5]">
-                  Escolher da galeria
-                </Text>
-                <Text className="text-sm text-[#555555] mt-0.5">
-                  Foto de um exame já guardada
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* File/PDF option */}
-          <TouchableOpacity
-            onPress={handleDocument}
-            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
-            activeOpacity={0.7}
-          >
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
-                <Ionicons name="document-outline" size={24} color="#1D9E75" />
-              </View>
-              <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-[#F5F5F5]">
-                  Importar ficheiro
-                </Text>
-                <Text className="text-sm text-[#555555] mt-0.5">
-                  PDF ou imagem dos Ficheiros
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* Manual option */}
-          <TouchableOpacity
-            onPress={handleManual}
-            className="bg-[#111111] border border-[#151515] rounded-2xl p-5 mb-3"
-            activeOpacity={0.7}
-          >
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-[#1D9E75]/15 items-center justify-center">
-                <Ionicons name="create-outline" size={24} color="#1D9E75" />
-              </View>
-              <View className="flex-1 ml-4">
-                <Text className="text-base font-semibold text-[#F5F5F5]">
-                  Inserir manualmente
-                </Text>
-                <Text className="text-sm text-[#555555] mt-0.5">
-                  Digite os valores dos biomarcadores
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* Bottom text — simple, no bg */}
-          <Text className="text-sm text-[#555555] text-center mt-8 px-4 leading-5">
-            Os seus dados são processados de forma segura e nunca são partilhados com terceiros.
-          </Text>
+      <Glass tone="none" radius={32} onPress={handleCamera} accessibilityLabel="Fotografar. O mais rápido" style={{ marginTop: 20 }} contentStyle={{ height: 196, paddingLeft: 22, paddingRight: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View>
+          <Text style={{ fontSize: 26, lineHeight: 32, fontWeight: '700', letterSpacing: -0.5, color: ON_VIVID }}>Fotografar</Text>
+          <Text style={{ marginTop: 4, fontSize: 15, lineHeight: 20, color: ON_VIVID, opacity: 0.74 }}>O mais rápido</Text>
+          <View style={{ marginTop: 14, width: 44, height: 44, borderRadius: 22, backgroundColor: t.pill, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="camera" size={20} color={t.pillFg} />
+          </View>
         </View>
-      </ScrollView>
-    </View>
+        <ScanIllustration size={150} frameColor={ON_VIVID} />
+      </Glass>
+
+      <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+        <SmallOption icon="doc" title="Importar" onPress={handleImport} />
+        <SmallOption icon="pencil" title="Inserir à mão" onPress={handleManual} />
+      </View>
+
+      {showConsentBox && (
+        <Animated.View style={[{ marginTop: 22, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 12 }, nudgeStyle]}>
+          <PressableScale
+            onPress={acceptConsent}
+            hitSlop={12}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: accepted }}
+            accessibilityLabel="Aceito o tratamento dos meus dados de saúde"
+            style={{ width: 28, height: 28, borderRadius: 9, borderWidth: 2, borderColor: accepted ? t.primaryBg : t.sub, backgroundColor: accepted ? t.primaryBg : 'transparent', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {accepted ? <Icon name="check" size={14} color={t.primaryFg} weight="bold" /> : null}
+          </PressableScale>
+          <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: t.sub }}>
+            Aceito o tratamento dos meus dados de saúde.{' '}
+            <Text accessibilityRole="link" onPress={() => setShowConsentInfo(true)} style={{ color: t.link, fontWeight: '600' }}>Saber mais</Text>
+          </Text>
+        </Animated.View>
+      )}
+
+      <Sheet visible={showConsentInfo} onClose={() => setShowConsentInfo(false)} title="Os teus dados de saúde">
+        <Body style={{ marginTop: 10 }}>
+          Para ler os teus exames, o Heartline trata dados de saúde. Os valores são extraídos com IA e ficam guardados, encriptados, na União Europeia.
+        </Body>
+        <Body style={{ marginTop: 10 }}>
+          Nunca os vendemos nem partilhamos. Podes apagar tudo quando quiseres, no Perfil.
+        </Body>
+        <Button title="Percebi" onPress={() => setShowConsentInfo(false)} style={{ marginTop: 20 }} />
+      </Sheet>
+    </Screen>
   );
 }

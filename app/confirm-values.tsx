@@ -1,43 +1,66 @@
 import { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  Alert,
-  Image,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Image, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Haptics from 'expo-haptics';
+import { File as ExpoFile } from 'expo-file-system';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { invalidateHealthData } from '@/hooks/useBiomarkers';
 import { useGeneratedContent } from '@/hooks/useGeneratedContent';
-import { ExtractedMarker } from '@/lib/types';
-import { ConfirmValuesList } from '@/components/confirm-values-list';
-import { Input } from '@/components/ui/Input';
+import { ExtractedMarker, PendingExam } from '@/lib/types';
+import { canonicalBiomarkerKey } from '@/lib/scoring';
+import { parseDecimal } from '@/lib/number';
+import { parseDateOnly, toDateOnly } from '@/lib/dates';
+import { haptics } from '@/lib/haptics';
+import { COMMON_BIOMARKERS } from '@/constants/biomarkers';
+import { useTheme } from '@/constants/theme';
+import { ConfirmValuesList, EditableMarker } from '@/components/confirm-values-list';
 import { Button } from '@/components/ui/Button';
+import { Chip, ChipRow } from '@/components/ui/Chip';
 import { DatePicker } from '@/components/ui/DatePicker';
-import { Ionicons } from '@expo/vector-icons';
-import { TouchableOpacity } from 'react-native';
+import { Glass } from '@/components/ui/Glass';
+import { Input } from '@/components/ui/Input';
+import { Status } from '@/components/ui/List';
+import { Screen } from '@/components/ui/Screen';
+import { Sheet } from '@/components/ui/Sheet';
+import { Note, Sub } from '@/components/ui/Text';
+import { TopBar } from '@/components/ui/TopBar';
 
-interface ParsedData {
-  lab_name: string | null;
-  exam_date: string | null;
-  markers: ExtractedMarker[];
-  imageUri?: string;
+const shortDate = (d: Date) => d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' });
+
+const EXAMS_BUCKET = 'exams';
+
+async function uploadOriginal(userId: string, examId: string, fileUri: string, mimeType: string) {
+  const extension = mimeType === 'application/pdf' ? 'pdf' : 'jpg';
+  const path = `${userId}/${examId}.${extension}`;
+  // Ler os bytes do disco: fetch(uri).blob() chega vazio ao Storage em React Native.
+  const bytes = await new ExpoFile(fileUri).bytes();
+  const { error } = await supabase.storage
+    .from(EXAMS_BUCKET)
+    .upload(path, bytes, { contentType: mimeType, upsert: true });
+  if (error) throw error;
+  return path;
 }
 
 export default function ConfirmValuesScreen() {
+  const t = useTheme();
   const router = useRouter();
   const { user } = useAuth();
   const { regenerate } = useGeneratedContent();
 
   const [labName, setLabName] = useState('');
   const [examDate, setExamDate] = useState<Date | null>(null);
-  const [markers, setMarkers] = useState<ExtractedMarker[]>([]);
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [markers, setMarkers] = useState<EditableMarker[]>([]);
+  const [fileUri, setFileUri] = useState<string | null>(null);
+  const [fileMimeType, setFileMimeType] = useState<string | null>(null);
+  const [editExamId, setEditExamId] = useState<string | null>(null);
+  const [manual, setManual] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showLab, setShowLab] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
+  // Chave seguinte para valores acrescentados à mão.
+  const [nextKey, setNextKey] = useState(1000);
 
   useEffect(() => {
     (async () => {
@@ -49,33 +72,89 @@ export default function ConfirmValuesScreen() {
           return;
         }
         await AsyncStorage.removeItem('pending_exam_data');
-        const parsed: ParsedData = JSON.parse(raw);
+        const parsed: PendingExam = JSON.parse(raw);
         setLabName(parsed.lab_name ?? '');
-        setExamDate(parsed.exam_date ? new Date(parsed.exam_date) : null);
-        setMarkers(parsed.markers ?? []);
-        setImageUri(parsed.imageUri ?? null);
+        setExamDate(parseDateOnly(parsed.exam_date));
+        setMarkers(
+          (parsed.markers ?? []).map((m, i) => ({
+            ...m,
+            name: m.name ?? '',
+            unit: m.unit ?? '',
+            value: parseDecimal(m.value) ?? NaN,
+            ref_min: parseDecimal(m.ref_min),
+            ref_max: parseDecimal(m.ref_max),
+            key: String(i),
+          }))
+        );
+        setFileUri(parsed.fileUri ?? null);
+        setFileMimeType(parsed.fileMimeType ?? null);
+        setEditExamId(parsed.editExamId ?? null);
+        setManual(!!parsed.manual);
+        // À mão começa-se por escolher o primeiro valor.
+        if (parsed.manual) setShowAdd(true);
       } catch (err) {
         console.error('Error loading exam data:', err);
         Alert.alert('Erro', 'Dados inválidos. Tenta novamente.');
         router.back();
       }
     })();
+    // Só à entrada: os dados pendentes são consumidos (e apagados) uma única vez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleUpdateMarker = (
-    index: number,
+    key: string,
     field: keyof ExtractedMarker,
     value: string | number | null
   ) => {
-    setMarkers((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
+    setMarkers((prev) => prev.map((m) => (m.key === key ? { ...m, [field]: value } : m)));
   };
 
-  const handleRemoveMarker = (index: number) => {
-    setMarkers((prev) => prev.filter((_, i) => i !== index));
+  const handleRemoveMarker = (key: string) => {
+    setMarkers((prev) => prev.filter((m) => m.key !== key));
+  };
+
+  const handleAddMarker = (template?: (typeof COMMON_BIOMARKERS)[number]) => {
+    haptics.select();
+    setMarkers((prev) => [
+      ...prev,
+      {
+        name: template?.name ?? '',
+        name_normalized: template?.name_normalized ?? '',
+        unit: template?.unit ?? '',
+        ref_min: template?.ref_min ?? null,
+        ref_max: template?.ref_max ?? null,
+        value: NaN,
+        confidence: null,
+        key: String(nextKey),
+      },
+    ]);
+    setNextKey((k) => k + 1);
+    setShowAdd(false);
+  };
+  /** Substitui os valores de um exame sem nunca o deixar vazio a meio. */
+  const replaceBiomarkers = async (examId: string, rows: Record<string, unknown>[]) => {
+    const { data: previous, error: previousError } = await supabase
+      .from('biomarkers')
+      .select('id')
+      .eq('exam_id', examId);
+    if (previousError) throw previousError;
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('biomarkers')
+      .insert(rows)
+      .select('id');
+    if (insertError) throw insertError;
+
+    const previousIds = (previous ?? []).map((b) => b.id);
+    if (previousIds.length === 0) return;
+
+    const { error: deleteError } = await supabase.from('biomarkers').delete().in('id', previousIds);
+    if (deleteError) {
+      // Sem isto ficavam os valores antigos e os novos lado a lado.
+      await supabase.from('biomarkers').delete().in('id', (inserted ?? []).map((b) => b.id));
+      throw deleteError;
+    }
   };
 
   const handleConfirm = async () => {
@@ -91,71 +170,92 @@ export default function ConfirmValuesScreen() {
       return;
     }
 
+    const unnamed = markers.some((m) => !m.name.trim());
+    if (unnamed) {
+      Alert.alert('Nome em falta', 'Há um valor sem nome. Preenche-o ou remove-o.');
+      return;
+    }
+
+    const invalid = markers.find((m) => !Number.isFinite(m.value));
+    if (invalid) {
+      Alert.alert('Valor inválido', `Verifica o valor de "${invalid.name}".`);
+      return;
+    }
+
     setSaving(true);
 
     try {
-      // Create exam record
-      const { data: examData, error: examError } = await supabase
-        .from('exams')
-        .insert({
-          profile_id: user.id,
-          lab_name: labName.trim() || null,
-          exam_date: examDate!.toISOString().split('T')[0],
-          extraction_method: 'ai_extracted',
-        })
-        .select()
-        .single();
+      const examFields = {
+        lab_name: labName.trim() || null,
+        exam_date: toDateOnly(examDate),
+      };
+      const toRow = (m: EditableMarker, examId: string) => ({
+        exam_id: examId,
+        profile_id: user.id,
+        name: m.name.trim(),
+        name_normalized: canonicalBiomarkerKey(m.name_normalized, m.name),
+        value: m.value,
+        unit: m.unit.trim(),
+        ref_min: m.ref_min,
+        ref_max: m.ref_max,
+        ai_confidence: m.confidence ?? null,
+        user_confirmed: true,
+      });
 
-      if (examError || !examData) throw examError;
+      if (editExamId) {
+        const { error: examError } = await supabase
+          .from('exams')
+          .update(examFields)
+          .eq('id', editExamId);
+        if (examError) throw examError;
 
-      // Upload original image if available
-      if (imageUri) {
-        try {
-          const response = await fetch(imageUri);
-          const blob = await response.blob();
-          const filePath = `${user.id}/${examData.id}.jpg`;
-          await supabase.storage.from('exams').upload(filePath, blob, {
-            contentType: 'image/jpeg',
-          });
-          await supabase
-            .from('exams')
-            .update({ original_file_path: filePath })
-            .eq('id', examData.id);
-        } catch (uploadErr) {
-          console.warn('Image upload failed, continuing:', uploadErr);
+        await replaceBiomarkers(editExamId, markers.map((m) => toRow(m, editExamId)));
+      } else {
+        const { data: examData, error: examError } = await supabase
+          .from('exams')
+          .insert({
+            ...examFields,
+            profile_id: user.id,
+            extraction_method: manual ? 'manual' : 'ai_extracted',
+          })
+          .select()
+          .single();
+
+        if (examError || !examData) throw examError;
+
+        const { error: markersError } = await supabase
+          .from('biomarkers')
+          .insert(markers.map((m) => toRow(m, examData.id)));
+
+        if (markersError) {
+          // Sem valores o exame ficaria vazio na lista.
+          await supabase.from('exams').delete().eq('id', examData.id);
+          throw markersError;
+        }
+
+        if (fileUri && fileMimeType) {
+          try {
+            const filePath = await uploadOriginal(user.id, examData.id, fileUri, fileMimeType);
+            await supabase
+              .from('exams')
+              .update({ original_file_path: filePath })
+              .eq('id', examData.id);
+          } catch (uploadErr) {
+            console.warn('Original upload failed, continuing:', uploadErr);
+          }
         }
       }
 
-      // Insert biomarkers
-      const biomarkersToInsert = markers.map((m) => ({
-        exam_id: examData.id,
-        profile_id: user.id,
-        name: m.name,
-        name_normalized: m.name_normalized,
-        value: m.value,
-        unit: m.unit,
-        ref_min: m.ref_min,
-        ref_max: m.ref_max,
-        ai_confidence: m.confidence,
-        user_confirmed: true,
-      }));
-
-      const { error: markersError } = await supabase
-        .from('biomarkers')
-        .insert(biomarkersToInsert);
-
-      if (markersError) throw markersError;
-
-      // Trigger content regeneration (non-blocking)
+      await invalidateHealthData(user.id);
       regenerate().catch((err) =>
         console.warn('Content regeneration failed:', err)
       );
+      haptics.success();
 
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      router.push('/(tabs)');
+      router.replace('/(tabs)');
     } catch (err) {
       console.error('Save error:', err);
+      haptics.warning();
       Alert.alert(
         'Erro ao guardar',
         'Não foi possível guardar o exame. Tenta novamente.'
@@ -166,100 +266,77 @@ export default function ConfirmValuesScreen() {
   };
 
   const lowConfidenceCount = markers.filter(
-    (m) => m.confidence !== 'high'
+    (m) => m.confidence === 'low' || m.confidence === 'medium'
   ).length;
+  const isPdf = fileMimeType === 'application/pdf';
+  const count = markers.length;
+  const used = new Set(markers.map((m) => canonicalBiomarkerKey(m.name_normalized, m.name)));
+  const available = COMMON_BIOMARKERS.filter((b) => !used.has(b.name_normalized));
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0A0A]">
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View className="px-6 pt-6">
-          <Text className="text-sm text-[#555555] mb-4">
-            Verifica os valores extraídos e corrige se necessário.
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <Screen footer={<Button title="Guardar exame" onPress={handleConfirm} loading={saving} />}>
+        <TopBar title={editExamId ? 'Editar exame' : 'Confirmar valores'} />
+
+        <View style={{ marginTop: 22 }}>
+          <Text accessibilityRole="header" style={{ fontSize: 30, lineHeight: 34, fontWeight: '600', letterSpacing: -0.6, color: t.ink }}>
+            {count === 1 ? '1 valor' : `${count} valores`}
           </Text>
-
-          {/* Low confidence warning */}
-          {lowConfidenceCount > 0 && (
-            <View className="bg-[#EF9F27]/10 border border-[#EF9F27]/30 rounded-xl p-3 mb-4">
-              <View className="flex-row items-center">
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={16}
-                  color="#EF9F27"
-                />
-                <Text className="text-xs text-[#EF9F27] ml-1.5 flex-1">
-                  {lowConfidenceCount} valor(es) com menor confiança — destacados
-                  a amarelo. Verifica com atenção.
-                </Text>
-              </View>
+          <Sub style={{ marginTop: 2 }}>{manual ? 'Escreve os valores do papel' : editExamId ? 'Corrige o que for preciso' : 'Confirma com o papel'}</Sub>
+          {lowConfidenceCount > 0 ? (
+            <View style={{ marginTop: 8 }}>
+              <Status tone="watch" label={lowConfidenceCount === 1 ? '1 valor a rever' : `${lowConfidenceCount} valores a rever`} />
             </View>
-          )}
+          ) : null}
+        </View>
 
-          {/* Original image preview */}
-          {imageUri && (
-            <View className="mb-4 rounded-xl overflow-hidden border border-[#151515]">
-              <Image
-                source={{ uri: imageUri }}
-                style={{ width: '100%', height: 200 }}
-                resizeMode="contain"
-                className="bg-[#111111]"
-              />
-            </View>
-          )}
-
-          {/* Exam metadata */}
+        {/* Data e laboratório — a IA nem sempre os encontra */}
+        <ChipRow style={{ marginTop: 16 }}>
           <DatePicker
             label="Data do exame"
             value={examDate}
             onChange={setExamDate}
             maximumDate={new Date()}
             minimumDate={new Date(2000, 0, 1)}
+            renderTrigger={(open) => <Chip icon="calendar" label={examDate ? shortDate(examDate) : 'Data do exame'} selected={!examDate} onPress={open} />}
           />
-          <Input
-            label="Laboratório"
-            value={labName}
-            onChangeText={setLabName}
-            placeholder="Nome do laboratório"
-          />
+          <Chip icon="lab" label={labName.trim() || 'Laboratório'} onPress={() => setShowLab(true)} />
+          {fileUri ? <Chip icon="doc" label="Ver original" onPress={() => setShowOriginal(true)} /> : null}
+        </ChipRow>
 
-          {/* Extracted values */}
-          <Text className="text-base font-semibold text-[#F5F5F5] mt-2 mb-3">
-            Valores extraídos ({markers.length})
-          </Text>
-
-          <ConfirmValuesList
-            markers={markers}
-            onUpdate={handleUpdateMarker}
-            onRemove={handleRemoveMarker}
-          />
-
-          {/* Confirm button */}
-          <View className="mt-4">
-            <Button
-              title="Confirmar e guardar"
-              onPress={handleConfirm}
-              loading={saving}
-              disabled={markers.length === 0}
-            />
-          </View>
-
-          {/* Disclaimer */}
-          <View className="mt-4 flex-row items-start bg-[#4A90D9]/10 rounded-xl p-3 border border-[#4A90D9]/20">
-            <Ionicons
-              name="information-circle"
-              size={16}
-              color="#4A90D9"
-              style={{ marginTop: 1 }}
-            />
-            <Text className="text-xs text-[#4A90D9] ml-2 flex-1 leading-4">
-              Os valores são extraídos automaticamente e podem conter erros.
-              Confirma sempre com o documento original.
-            </Text>
-          </View>
+        <View style={{ marginTop: 18 }}>
+          <ConfirmValuesList markers={markers} onUpdate={handleUpdateMarker} onRemove={handleRemoveMarker} />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+        <View style={{ alignItems: 'flex-start', marginTop: 6 }}>
+          <Button variant="text" icon="plus" title="Adicionar valor" onPress={() => setShowAdd(true)} style={{ paddingHorizontal: 4 }} />
+        </View>
+
+        {!editExamId && !manual ? (
+          <Note style={{ marginTop: 8, textAlign: 'left', marginHorizontal: 4 }}>Os valores foram lidos automaticamente e podem ter erros. Compara-os com o documento original.</Note>
+        ) : null}
+      </Screen>
+
+      <Sheet visible={showAdd} onClose={() => setShowAdd(false)} title="Que valor queres adicionar?">
+        <ChipRow style={{ marginTop: 14 }}>
+          {available.map((b) => <Chip key={b.name_normalized} label={b.name} onPress={() => handleAddMarker(b)} />)}
+          <Chip icon="plus" label="Outro" onPress={() => handleAddMarker()} />
+        </ChipRow>
+      </Sheet>
+
+      <Sheet visible={showLab} onClose={() => setShowLab(false)} title="Laboratório">
+        <Input label="Nome (opcional)" value={labName} onChangeText={setLabName} placeholder="Onde fizeste o exame" autoFocus returnKeyType="done" onSubmitEditing={() => setShowLab(false)} />
+        <Button title="Concluído" onPress={() => setShowLab(false)} style={{ marginTop: 20 }} />
+      </Sheet>
+
+      <Sheet visible={showOriginal} onClose={() => setShowOriginal(false)} title="Documento original">
+        {fileUri && !isPdf ? (
+          <Glass radius={20} style={{ marginTop: 14 }}>
+            <Image source={{ uri: fileUri }} style={{ width: '100%', height: 420 }} resizeMode="contain" accessibilityLabel="Fotografia original do exame" />
+          </Glass>
+        ) : (
+          <Sub style={{ marginTop: 10, fontSize: 16, lineHeight: 23 }}>O PDF original fica guardado com o exame. Compara os valores com o documento.</Sub>
+        )}
+      </Sheet>
+    </KeyboardAvoidingView>
   );
 }

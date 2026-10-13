@@ -1,15 +1,19 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { Keyboard, View, Text, Image, Animated, Easing, Platform } from 'react-native';
-import { Asset } from 'expo-asset';
-import Svg, { Defs, RadialGradient, Stop, Ellipse } from 'react-native-svg';
+import { Keyboard, StyleSheet } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import * as Haptics from 'expo-haptics';
+import { useFonts } from 'expo-font';
+import { Manrope_600SemiBold } from '@expo-google-fonts/manrope';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { QueryClientProvider } from '@tanstack/react-query';
 
-import { useAuth } from '@/hooks/useAuth';
+import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
+import { queryClient } from '@/lib/query';
+import { useTheme } from '@/constants/theme';
+import { Logo, WORDMARK_FONT } from '@/components/logo';
 import '@/global.css';
 
 // Context so onboarding screens can tell the layout "I'm done"
@@ -19,128 +23,39 @@ export function useOnboardingContext() { return useContext(OnboardingContext); }
 
 SplashScreen.preventAutoHideAsync();
 
-function SplashGlow({ size }: { size: number }) {
-  return (
-    <View style={{ position: 'absolute', width: size, height: size }}>
-      <Svg width={size} height={size}>
-        <Defs>
-          <RadialGradient id="splashGlow" cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor="#1D9E75" stopOpacity="0.35" />
-            <Stop offset="50%" stopColor="#1D9E75" stopOpacity="0.12" />
-            <Stop offset="100%" stopColor="#1D9E75" stopOpacity="0" />
-          </RadialGradient>
-        </Defs>
-        <Ellipse cx={size / 2} cy={size / 2} rx={size / 2} ry={size / 2} fill="url(#splashGlow)" />
-      </Svg>
-    </View>
-  );
-}
+/** Tamanho do símbolo: igual ao `imageWidth` do splash nativo (app.json), para a passagem não se notar. */
+const SPLASH_LOGO = 128;
 
-function HeartbeatSplash({ onIntroComplete, dismiss }: { onIntroComplete: () => void; dismiss: boolean }) {
-  const orbOpacity = useRef(new Animated.Value(0)).current;
-  const orbScale = useRef(new Animated.Value(0.8)).current;
-  const textOpacity = useRef(new Animated.Value(0)).current;
-  const wrapperOpacity = useRef(new Animated.Value(1)).current;
-  const easeOut = Easing.out(Easing.ease);
-  const easeIO = Easing.inOut(Easing.ease);
-  const dismissed = useRef(false);
-  const introComplete = useRef(false);
-  const alive = useRef(true);
+/**
+ * Continuação do splash nativo: o mesmo logo, no mesmo sítio, sobre a mesma cor.
+ * O ponto pulsa, o nome aparece e tudo desvanece quando a app está pronta.
+ */
+function LogoSplash({ onIntroComplete, dismiss }: { onIntroComplete: () => void; dismiss: boolean }) {
+  const t = useTheme();
+  const wrapper = useSharedValue(1);
+  const name = useSharedValue(0);
 
-  // Heartbeat: TUM-tum with original snappy feel, slower rhythm
-  const beat = useCallback(() => {
-    return new Promise<void>((resolve) => {
-      // TUM — strong systolic beat
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      Animated.timing(orbScale, { toValue: 1.12, duration: 80, easing: easeOut, useNativeDriver: true }).start(() => {
-        Animated.timing(orbScale, { toValue: 1.02, duration: 120, easing: easeIO, useNativeDriver: true }).start(() => {
-          // tum — soft diastolic echo
-          setTimeout(() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            Animated.timing(orbScale, { toValue: 1.06, duration: 60, easing: easeOut, useNativeDriver: true }).start(() => {
-              Animated.timing(orbScale, { toValue: 1, duration: 200, easing: easeIO, useNativeDriver: true }).start(() => resolve());
-            });
-          }, 40);
-        });
-      });
-    });
+  useEffect(() => {
+    name.value = withDelay(350, withTiming(1, { duration: 450 }));
+    const timer = setTimeout(onIntroComplete, 1100);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    alive.current = true;
+    if (dismiss) wrapper.value = withTiming(0, { duration: 420 });
+  }, [dismiss, wrapper]);
 
-    (async () => {
-      // FadeIn orb
-      Animated.parallel([
-        Animated.timing(orbOpacity, { toValue: 1, duration: 600, easing: easeOut, useNativeDriver: true }),
-        Animated.timing(orbScale, { toValue: 1, duration: 600, easing: easeOut, useNativeDriver: true }),
-      ]).start();
-      await wait(700);
-
-      // FadeIn text
-      Animated.timing(textOpacity, { toValue: 1, duration: 300, easing: easeOut, useNativeDriver: true }).start();
-      await wait(400);
-
-      // Heartbeat loop — ~55bpm, long rest between beats
-      while (alive.current) {
-        await beat();
-        await wait(1100);
-      }
-    })();
-
-    // Signal intro complete after first beat
-    const t = setTimeout(() => {
-      introComplete.current = true;
-      onIntroComplete();
-    }, 1800);
-
-    return () => { alive.current = false; clearTimeout(t); };
-  }, []);
-
-  // Phase 2: Exit — stop heartbeat, fade out smoothly from current state
-  useEffect(() => {
-    if (!dismiss || dismissed.current) return;
-    dismissed.current = true;
-    alive.current = false;
-
-    // Stop any running beat animation, then smoothly exit from wherever we are
-    orbScale.stopAnimation(() => {
-      Animated.parallel([
-        Animated.timing(orbScale, { toValue: 1.3, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(wrapperOpacity, { toValue: 0, duration: 600, easing: Easing.in(Easing.ease), useNativeDriver: true }),
-      ]).start();
-    });
-  }, [dismiss]);
+  const wrapperStyle = useAnimatedStyle(() => ({ opacity: wrapper.value }));
+  const nameStyle = useAnimatedStyle(() => ({ opacity: name.value, transform: [{ translateY: (1 - name.value) * 6 }] }));
 
   return (
     <Animated.View
-      style={{ opacity: wrapperOpacity }}
-      className="absolute inset-0 bg-[#0A0A0A] items-center justify-center z-50"
+      style={[StyleSheet.absoluteFill, styles.splash, { backgroundColor: t.dark ? '#100F19' : '#F3F2F7' }, wrapperStyle]}
       pointerEvents={dismiss ? 'none' : 'auto'}
     >
-      <Animated.View
-        style={{
-          opacity: orbOpacity,
-          transform: [{ scale: orbScale }],
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 240,
-          height: 240,
-        }}
-      >
-        <SplashGlow size={240} />
-        <View style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden' }}>
-          <Image
-            source={require('@/assets/images/splash-orb.png')}
-            style={{ width: 120, height: 120 }}
-            resizeMode="cover"
-          />
-        </View>
-      </Animated.View>
-      <Animated.Text
-        style={{ opacity: textOpacity, fontSize: 24, fontWeight: '700', color: '#FFFFFF', marginTop: 16 }}
-      >
+      <Logo size={SPLASH_LOGO} animated />
+      <Animated.Text style={[styles.splashName, { color: t.ink, top: '50%', marginTop: SPLASH_LOGO / 2 + 4 }, nameStyle]}>
         Heartline
       </Animated.Text>
     </Animated.View>
@@ -148,22 +63,26 @@ function HeartbeatSplash({ onIntroComplete, dismiss }: { onIntroComplete: () => 
 }
 
 export default function RootLayout() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
+
+function RootNavigator() {
+  const t = useTheme();
   const { session, loading } = useAuth();
-  const segments = useSegments();
+  // Sem os tipos de rotas gerados pelo Expo (no CI), o tuplo teria só um elemento.
+  const segments: string[] = useSegments();
   const router = useRouter();
   const [splashAnimDone, setSplashAnimDone] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-
-  // Pre-cache images so they appear instantly on auth screens
-  useEffect(() => {
-    Asset.loadAsync([
-      require('@/assets/images/splash-orb.png'),
-      require('@/assets/images/orb-good.png'),
-      require('@/assets/images/orb-empty.png'),
-      require('@/assets/images/orb-warning.png'),
-      require('@/assets/images/orb-danger.png'),
-    ]);
-  }, []);
+  // O nome do logo usa Manrope; se a fonte falhar, segue com a do sistema.
+  const [fontsLoaded, fontError] = useFonts({ Manrope_600SemiBold });
+  const fontsReady = fontsLoaded || !!fontError;
 
   // These are null/undefined until loaded
   const [hasSeenWelcome, setHasSeenWelcome] = useState<boolean | null>(null);
@@ -218,6 +137,14 @@ export default function RootLayout() {
     const inOnboarding = segments[0] === '(onboarding)';
     const inTabs = segments[0] === '(tabs)';
 
+    // O link de recuperação abre este ecrã sem sessão: é ele que troca o
+    // código por uma sessão, por isso nunca se redireciona daqui para fora.
+    if (segments[0] === 'reset-password') {
+      lastNav.current = '/reset-password';
+      hasNavigated.current = true;
+      return;
+    }
+
     let target = '';
 
     const isFirstNav = !hasNavigated.current;
@@ -236,7 +163,8 @@ export default function RootLayout() {
       if (inOnboarding && !isFirstNav) return;
       target = '/(onboarding)/profile';
     } else {
-      if (inTabs) return;
+      // Allow root-level screens (confirm-values, analysis, biomarker detail, reset-password)
+      if (inTabs || (!inAuth && !inOnboarding)) return;
       target = '/(tabs)';
     }
 
@@ -264,82 +192,40 @@ export default function RootLayout() {
 
   // Safety: force dismiss splash after 8s no matter what
   useEffect(() => {
-    const t = setTimeout(() => {
-      if (showSplash) {
-        setDismissSplash(true);
-        setTimeout(() => setShowSplash(false), 500);
-      }
+    const timer = setTimeout(() => {
+      setDismissSplash(true);
+      setTimeout(() => setShowSplash(false), 500);
     }, 8000);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, []);
 
+  // O splash nativo sai assim que o de JS (igual) está montado por baixo.
   useEffect(() => {
-    if (!loading && hasSeenWelcome !== null) {
-      SplashScreen.hideAsync();
-    }
-  }, [loading, hasSeenWelcome]);
+    if (fontsReady) SplashScreen.hideAsync();
+  }, [fontsReady]);
 
   const markOnboardingDone = useCallback(() => setOnboardingCompleted(true), []);
 
   return (
     <OnboardingContext.Provider value={{ markOnboardingDone }}>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0A0A0A' } }}>
+      <StatusBar style={t.dark ? 'light' : 'dark'} />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg[0] } }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(onboarding)" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen
-          name="confirm-values"
-          options={{
-            presentation: 'card',
-            gestureEnabled: true,
-            headerShown: true,
-            title: 'Confirmar valores',
-            headerBackButtonDisplayMode: 'minimal',
-            headerStyle: { backgroundColor: '#0A0A0A' },
-            headerTintColor: '#F5F5F5',
-            headerTitleStyle: { color: '#F5F5F5', fontWeight: '600' },
-            headerShadowVisible: false,
-          }}
-        />
-        <Stack.Screen
-          name="biomarker/[id]"
-          options={{
-            presentation: 'card',
-            gestureEnabled: true,
-            headerShown: true,
-            title: '',
-            headerBackButtonDisplayMode: 'minimal',
-            headerStyle: { backgroundColor: '#0A0A0A' },
-            headerTintColor: '#F5F5F5',
-            headerShadowVisible: false,
-          }}
-        />
-        <Stack.Screen
-          name="analysis"
-          options={{
-            presentation: 'card',
-            gestureEnabled: true,
-            headerShown: true,
-            title: 'A tua análise',
-            headerBackButtonDisplayMode: 'minimal',
-            headerStyle: { backgroundColor: '#0A0A0A' },
-            headerTintColor: '#F5F5F5',
-            headerTitleStyle: { color: '#F5F5F5', fontWeight: '600' },
-            headerShadowVisible: false,
-          }}
-        />
-        <Stack.Screen
-          name="reset-password"
-          options={{ presentation: 'card', gestureEnabled: false }}
-        />
+        <Stack.Screen name="confirm-values" options={{ presentation: 'card', gestureEnabled: true }} />
+        <Stack.Screen name="biomarker/[id]" options={{ presentation: 'card', gestureEnabled: true }} />
+        <Stack.Screen name="analysis" options={{ presentation: 'card', gestureEnabled: true }} />
+        <Stack.Screen name="reset-password" options={{ presentation: 'card', gestureEnabled: false }} />
       </Stack>
-      {showSplash && (
-        <HeartbeatSplash
-          onIntroComplete={() => setSplashAnimDone(true)}
-          dismiss={dismissSplash}
-        />
+      {showSplash && fontsReady && (
+        <LogoSplash onIntroComplete={() => setSplashAnimDone(true)} dismiss={dismissSplash} />
       )}
     </OnboardingContext.Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  splash: { alignItems: 'center', justifyContent: 'center', zIndex: 50 },
+  splashName: { position: 'absolute', fontFamily: WORDMARK_FONT, fontSize: 28, letterSpacing: -0.8 },
+});

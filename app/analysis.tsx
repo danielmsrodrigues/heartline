@@ -1,498 +1,167 @@
-import { useState, useMemo, useRef } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
-import {
-  Sparkles,
-  CheckCircle,
-  Heart,
-  MessageSquare,
-  Copy,
-  Check,
-  ArrowUp,
-} from 'lucide-react-native';
 import { useGeneratedContent } from '@/hooks/useGeneratedContent';
-import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
-import { useBiomarkers, BiomarkerWithScoring } from '@/hooks/useBiomarkers';
-import { askQuestion } from '@/lib/ai';
-import { Sparkline } from '@/components/sparkline';
-import { AttentionBadge } from '@/components/attention-badge';
-import { ATTENTION_COLORS } from '@/constants/colors';
-import { SkeletonSection, SkeletonCard } from '@/components/ui/Skeleton';
+import { BiomarkerWithScoring, useBiomarkers } from '@/hooks/useBiomarkers';
+import { ATTENTION_LABELS } from '@/constants/colors';
+import { countByTone, headlineFor, overallTone, plainLabel, rankByAttention, shortStatus } from '@/constants/plain-language';
+import { ON_VIVID, Tone, useTheme } from '@/constants/theme';
+import { haptics } from '@/lib/haptics';
+import { Donut } from '@/components/donut';
+import { Mascot } from '@/components/mascot';
+import { Button } from '@/components/ui/Button';
+import { IconBubble } from '@/components/ui/Chip';
+import { IconName } from '@/components/ui/Icon';
+import { Glass, PressableScale } from '@/components/ui/Glass';
+import { Status } from '@/components/ui/List';
+import { Screen } from '@/components/ui/Screen';
+import { Sheet } from '@/components/ui/Sheet';
+import { Body, DISCLAIMER, Note, SectionTitle, Sub } from '@/components/ui/Text';
+import { Pill } from '@/components/ui/TintCard';
+import { TopBar } from '@/components/ui/TopBar';
 
-// Common aliases to match AI text to normalized biomarker keys
-const BIOMARKER_ALIASES: Record<string, string[]> = {
-  ldl: ['ldl', 'colesterol ldl', 'colesterol mau'],
-  hdl: ['hdl', 'colesterol hdl', 'colesterol bom'],
-  triglycerides: ['triglicéridos', 'trigliceridos', 'triglicéridos'],
-  glucose: ['glicose', 'glucose', 'glicemia', 'açúcar'],
-  total_cholesterol: ['colesterol total'],
-  hba1c: ['hba1c', 'hemoglobina glicada'],
-  crp: ['pcr', 'crp', 'proteína c-reactiva', 'proteina c-reactiva'],
-  hemoglobin: ['hemoglobina'],
-  iron: ['ferro'],
-  ferritin: ['ferritina'],
-  vitamin_d: ['vitamina d'],
-  vitamin_b12: ['vitamina b12'],
-  tsh: ['tsh', 'tiróide'],
-  uric_acid: ['ácido úrico', 'acido urico'],
-  creatinine: ['creatinina'],
-  urea: ['ureia'],
+const TONE_LABEL: Record<Tone, string> = {
+  ok: 'dentro do esperado',
+  watch: 'a acompanhar',
+  att: 'a merecer atenção',
+  out: 'fora do intervalo',
+  none: '',
 };
 
-function findMentionedBiomarkers(
-  text: string,
-  biomarkers: BiomarkerWithScoring[],
-  max: number = 2,
-): BiomarkerWithScoring[] {
-  if (!text || biomarkers.length === 0) return [];
-  const lower = text.toLowerCase();
-  const found: BiomarkerWithScoring[] = [];
-
-  for (const bio of biomarkers) {
-    if (found.length >= max) break;
-    // Check normalized name
-    if (lower.includes(bio.name_normalized)) {
-      found.push(bio);
-      continue;
-    }
-    // Check display name
-    if (lower.includes(bio.name.toLowerCase())) {
-      found.push(bio);
-      continue;
-    }
-    // Check aliases
-    const aliases = BIOMARKER_ALIASES[bio.name_normalized];
-    if (aliases?.some((a) => lower.includes(a))) {
-      found.push(bio);
-    }
-  }
-
-  return found;
+interface Factor {
+  icon: IconName;
+  text: string;
 }
 
-function MiniBiomarkerCard({
-  biomarker,
-  onPress,
-}: {
-  biomarker: BiomarkerWithScoring;
-  onPress: () => void;
-}) {
-  const color = ATTENTION_COLORS[biomarker.attentionLevel]?.text ?? '#EF9F27';
-  const sparkData = biomarker.readings.map((r) => r.value);
+function weighing(b: BiomarkerWithScoring): Factor {
+  const icon: IconName = b.adverseTrend ? (b.trend === 'a_descer' ? 'down' : 'up') : 'chart';
+  return { icon, text: `${plainLabel(b)}: ${shortStatus(b).toLowerCase()}` };
+}
 
+function Column({ title, tone, factors }: { title: string; tone: Tone; factors: Factor[] }) {
+  const t = useTheme();
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.8}
-      style={{
-        backgroundColor: '#111111',
-        borderRadius: 12,
-        padding: 14,
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderWidth: 0.5,
-        borderColor: 'rgba(255,255,255,0.06)',
-        marginTop: 12,
-        gap: 14,
-      }}
-    >
-      {/* Dot + name + value */}
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-          <Text style={{ fontSize: 13, fontWeight: '600', color: '#FFFFFF' }}>
-            {biomarker.name}
-          </Text>
+    <Glass style={{ flex: 1 }} contentStyle={{ paddingVertical: 16, paddingHorizontal: 14 }}>
+      <Text accessibilityRole="header" style={{ fontSize: 15, lineHeight: 20, fontWeight: '600', color: t.level[tone], marginBottom: 4 }}>{title}</Text>
+      {factors.map((factor) => (
+        <View key={factor.text} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40, marginTop: 8 }}>
+          <IconBubble icon={factor.icon} size={34} tone={tone} />
+          <Text style={{ flex: 1, fontSize: 14, lineHeight: 18, fontWeight: '500', color: t.ink }}>{factor.text}</Text>
         </View>
-        <Text style={{ fontSize: 18, fontWeight: '700', color: '#F5F5F5', marginTop: 2 }}>
-          {biomarker.latestValue}{' '}
-          <Text style={{ fontSize: 12, fontWeight: '400', color: '#666666' }}>
-            {biomarker.unit}
-          </Text>
-        </Text>
-      </View>
-
-      {/* Sparkline */}
-      {sparkData.length >= 2 ? (
-        <Sparkline data={sparkData} width={60} height={24} color={color} />
-      ) : null}
-
-      {/* Badge */}
-      <AttentionBadge level={biomarker.attentionLevel} />
-    </TouchableOpacity>
+      ))}
+    </Glass>
   );
 }
 
-const CHAT_SUGGESTIONS = [
-  'Explica-me o meu LDL',
-  'O que posso melhorar?',
-  'O meu HDL é preocupante?',
-];
-
 export default function AnalysisScreen() {
-  const router = useRouter();
-  const { cards, fullAnalysis, questions, loading } = useGeneratedContent();
-  const { user } = useAuth();
-  const { familyHistory } = useProfile();
+  const t = useTheme();
+  const { cards, fullAnalysis, questions, loading, generating } = useGeneratedContent();
+  const { profile, familyHistory } = useProfile();
   const { biomarkers } = useBiomarkers(familyHistory.length > 0);
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
-  const [chatQuestion, setChatQuestion] = useState('');
-  const [chatAnswer, setChatAnswer] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const [copied, setCopied] = useState(false);
+  const [showFull, setShowFull] = useState(false);
 
-  const handleCopy = async (text: string, idx: number) => {
-    await Clipboard.setStringAsync(text);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setCopiedIdx(idx);
-    setTimeout(() => setCopiedIdx(null), 2000);
-  };
+  const tone = overallTone(biomarkers);
+  const ranked = rankByAttention(biomarkers);
+  const toWatch = ranked.filter((b) => b.attentionLevel !== 'dentro_do_esperado');
+  const top = toWatch[0];
+  const parts = countByTone(biomarkers);
 
-  const handleAsk = async () => {
-    if (!chatQuestion.trim() || !user || chatLoading) return;
-    setChatLoading(true);
-    setChatAnswer('');
-    try {
-      const result = await askQuestion(user.id, chatQuestion.trim());
-      setChatAnswer(result.answer);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      // Scroll to bottom to show answer
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
-    } catch (e) {
-      setChatAnswer('Não foi possível obter resposta. Tenta novamente.');
-    } finally {
-      setChatLoading(false);
-    }
-  };
+  const against: Factor[] = toWatch.slice(0, 3).map(weighing);
+  if (familyHistory.length > 0 && toWatch.some((b) => b.familyRelevant)) against.push({ icon: 'people', text: 'Histórico familiar' });
 
-  const handleSuggestion = (text: string) => {
-    setChatQuestion(text);
-    setChatAnswer('');
-  };
+  const inFavour: Factor[] = [];
+  if (profile && !profile.smoker) inFavour.push({ icon: 'smoke', text: 'Não fumas' });
+  if ((profile?.exercise_minutes_per_week ?? 0) >= 150) inFavour.push({ icon: 'exercise', text: 'Exercício regular' });
+  if (profile?.sleep_hours_avg != null && profile.sleep_hours_avg >= 6 && profile.sleep_hours_avg <= 8) inFavour.push({ icon: 'sleep', text: 'Sono em dia' });
+  const expected = biomarkers.length - toWatch.length;
+  if (expected > 0) inFavour.push({ icon: 'check', text: expected === 1 ? '1 valor no intervalo' : `${expected} valores no intervalo` });
 
-  // Find mentioned biomarkers for each section
   const insightText = fullAnalysis?.full_insight || cards?.insight || '';
   const positiveText = fullAnalysis?.full_positive || cards?.positive || '';
   const familyText = fullAnalysis?.full_family || cards?.family_note || '';
 
-  const insightBiomarkers = useMemo(
-    () => findMentionedBiomarkers(insightText, biomarkers, 2),
-    [insightText, biomarkers],
-  );
-  const positiveBiomarkers = useMemo(
-    () => findMentionedBiomarkers(positiveText, biomarkers, 2),
-    [positiveText, biomarkers],
-  );
-  const familyBiomarkers = useMemo(
-    () => findMentionedBiomarkers(familyText, biomarkers, 2),
-    [familyText, biomarkers],
-  );
+  const copyQuestions = async () => {
+    await Clipboard.setStringAsync(questions.map((q, i) => `${i + 1}. ${q.question}`).join('\n'));
+    haptics.success();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <View className="flex-1 bg-[#0A0A0A]">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-        keyboardVerticalOffset={88}
-      >
-        <ScrollView
-          ref={scrollRef}
-          className="flex-1"
-          contentContainerStyle={{ paddingBottom: 20 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+    <Screen tone={tone}>
+      <TopBar title="Em resumo" />
 
-            {/* Skeleton loading state */}
-            {loading && !cards ? (
-              <View>
-                <SkeletonSection titleWidth={200} />
-                <SkeletonSection titleWidth={160} />
-                <SkeletonSection titleWidth={140} />
-                <View style={{ height: 1, backgroundColor: '#151515', marginBottom: 32 }} />
-                <SkeletonSection titleWidth={190} />
-                <View style={{ gap: 12 }}>
-                  <SkeletonCard lines={2} />
-                  <SkeletonCard lines={2} />
-                </View>
-              </View>
-            ) : null}
+      <View style={{ marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <Mascot size={60} tone={tone} happy={!top && biomarkers.length > 0} interactive />
+        <View style={{ flex: 1 }}>
+          {top ? <Text style={{ fontSize: 15, lineHeight: 20, fontWeight: '600', color: t.level[tone] }}>{ATTENTION_LABELS[top.attentionLevel]}</Text> : null}
+          <Text accessibilityRole="header" style={{ marginTop: 2, fontSize: 26, lineHeight: 32, fontWeight: '700', letterSpacing: -0.5, color: t.ink }}>
+            {top ? headlineFor(top) : 'Os teus valores estão dentro do esperado'}
+          </Text>
+        </View>
+      </View>
 
-            {/* Main Insight Section */}
-            {!loading && insightText ? (
-              <View style={{ marginBottom: 32 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(29,158,117,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Sparkles size={20} color="#1D9E75" />
-                  </View>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#FFFFFF' }}>
-                    O que vemos no conjunto
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 15, lineHeight: 24, color: '#C0C0C0' }}>
-                  {insightText}
-                </Text>
-                {insightBiomarkers.map((b) => (
-                  <MiniBiomarkerCard
-                    key={b.name_normalized}
-                    biomarker={b}
-                    onPress={() => router.push(`/biomarker/${b.name_normalized}` as any)}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            {/* Positive Section */}
-            {!loading && positiveText ? (
-              <View style={{ marginBottom: 32 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(29,158,117,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <CheckCircle size={20} color="#1D9E75" />
-                  </View>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#FFFFFF' }}>
-                    O que está a teu favor
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 15, lineHeight: 24, color: '#C0C0C0' }}>
-                  {positiveText}
-                </Text>
-                {positiveBiomarkers.map((b) => (
-                  <MiniBiomarkerCard
-                    key={b.name_normalized}
-                    biomarker={b}
-                    onPress={() => router.push(`/biomarker/${b.name_normalized}` as any)}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            {/* Family History Section */}
-            {!loading && familyText ? (
-              <View style={{ marginBottom: 32 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(239,159,39,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Heart size={20} color="#EF9F27" />
-                  </View>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#FFFFFF' }}>
-                    Contexto familiar
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 15, lineHeight: 24, color: '#C0C0C0' }}>
-                  {familyText}
-                </Text>
-                {familyBiomarkers.map((b) => (
-                  <MiniBiomarkerCard
-                    key={b.name_normalized}
-                    biomarker={b}
-                    onPress={() => router.push(`/biomarker/${b.name_normalized}` as any)}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            {/* Divider */}
-            {!loading ? <View style={{ height: 1, backgroundColor: '#151515', marginBottom: 32 }} /> : null}
-
-            {/* Questions for your doctor */}
-            {!loading && questions.length > 0 ? (
-              <View style={{ marginBottom: 32 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(29,158,117,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <MessageSquare size={20} color="#1D9E75" />
-                  </View>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#FFFFFF' }}>
-                    Para a tua próxima consulta
-                  </Text>
-                </View>
-
-                <View style={{ gap: 12 }}>
-                  {questions.map((q, i) => (
-                    <View
-                      key={i}
-                      style={{
-                        backgroundColor: '#111111',
-                        borderRadius: 16,
-                        padding: 18,
-                        borderWidth: 0.5,
-                        borderColor: 'rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      <Text style={{ fontSize: 15, lineHeight: 22, color: '#D4D4D4', fontStyle: 'italic', marginBottom: 8 }}>
-                        "{q.question}"
-                      </Text>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 12, color: '#666666', flex: 1, marginRight: 12 }}>
-                          {q.context}
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => handleCopy(q.question, i)}
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 18,
-                            backgroundColor: 'rgba(255,255,255,0.06)',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          {copiedIdx === i ? (
-                            <Check size={16} color="#1D9E75" />
-                          ) : (
-                            <Copy size={16} color="#888888" />
-                          )}
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-
-            {/* Chat answer + loading */}
-            {chatAnswer ? (
-              <View style={{
-                backgroundColor: '#111111',
-                borderRadius: 16,
-                padding: 18,
-                marginBottom: 16,
-                borderWidth: 0.5,
-                borderColor: 'rgba(29,158,117,0.15)',
-              }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <Sparkles size={14} color="#1D9E75" />
-                  <Text style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#1D9E75' }}>
-                    Resposta
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 15, lineHeight: 24, color: '#C0C0C0' }}>
-                  {chatAnswer}
-                </Text>
-              </View>
-            ) : null}
-
-            {chatLoading ? (
-              <View style={{
-                backgroundColor: '#111111',
-                borderRadius: 16,
-                padding: 18,
-                marginBottom: 16,
-                borderWidth: 0.5,
-                borderColor: 'rgba(29,158,117,0.15)',
-                alignItems: 'center',
-                flexDirection: 'row',
-                gap: 12,
-              }}>
-                <ActivityIndicator size="small" color="#1D9E75" />
-                <Text style={{ fontSize: 14, color: '#666666' }}>
-                  A analisar os teus dados...
-                </Text>
-              </View>
-            ) : null}
-
+      <Glass style={{ marginTop: 18 }} contentStyle={{ paddingVertical: 16, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <Donut parts={parts} big={String(biomarkers.length)} small={biomarkers.length === 1 ? 'valor' : 'valores'} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, lineHeight: 20, fontWeight: '600', color: t.sub }}>Os teus valores</Text>
+          <View style={{ marginTop: 8, gap: 4 }}>
+            {parts.map((part) => <Status key={part.tone} tone={part.tone} label={`${part.count} ${TONE_LABEL[part.tone]}`} />)}
           </View>
-        </ScrollView>
+        </View>
+      </Glass>
 
-        {/* Sticky bottom chat area */}
-        {!loading ? (
-          <View style={{
-            borderTopWidth: 0.5,
-            borderTopColor: '#1A1A1A',
-            backgroundColor: '#0A0A0A',
-            paddingHorizontal: 20,
-            paddingTop: 10,
-            paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-          }}>
-            {/* Suggestion chips */}
-            {!chatAnswer && !chatLoading ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 8, paddingBottom: 10 }}
-              >
-                {CHAT_SUGGESTIONS.map((s, i) => (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => handleSuggestion(s)}
-                    activeOpacity={0.7}
-                    style={{
-                      backgroundColor: '#111111',
-                      borderRadius: 20,
-                      paddingHorizontal: 14,
-                      paddingVertical: 8,
-                      borderWidth: 0.5,
-                      borderColor: 'rgba(255,255,255,0.06)',
-                    }}
-                  >
-                    <Text style={{ fontSize: 13, color: '#999999' }}>
-                      {s}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            ) : null}
+      <View style={{ marginTop: 14, flexDirection: 'row', alignItems: 'stretch', gap: 14 }}>
+        {against.length > 0 ? <Column title="O que pesa" tone={tone} factors={against} /> : null}
+        {inFavour.length > 0 ? <Column title="A teu favor" tone="ok" factors={inFavour} /> : null}
+      </View>
 
-            {/* Input row */}
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: '#111111',
-              borderRadius: 24,
-              borderWidth: 0.5,
-              borderColor: 'rgba(255,255,255,0.06)',
-              paddingLeft: 16,
-              paddingRight: 6,
-              paddingVertical: 4,
-            }}>
-              <TextInput
-                value={chatQuestion}
-                onChangeText={setChatQuestion}
-                placeholder="Escreve a tua pergunta..."
-                placeholderTextColor="#555555"
-                style={{
-                  flex: 1,
-                  fontSize: 15,
-                  color: '#FFFFFF',
-                  paddingVertical: 8,
-                  maxHeight: 80,
-                }}
-                multiline
-                maxLength={300}
-                returnKeyType="send"
-                onSubmitEditing={handleAsk}
-                blurOnSubmit
-              />
-              <TouchableOpacity
-                onPress={handleAsk}
-                disabled={!chatQuestion.trim() || chatLoading}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: chatQuestion.trim() ? '#1D9E75' : '#1A1A1A',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                activeOpacity={0.7}
-              >
-                <ArrowUp size={18} color={chatQuestion.trim() ? '#FFFFFF' : '#555555'} />
-              </TouchableOpacity>
+      {insightText ? (
+        <View style={{ alignItems: 'flex-start', marginTop: 6 }}>
+          <Button variant="text" title="Ler a explicação completa" onPress={() => setShowFull(true)} style={{ paddingHorizontal: 4 }} />
+        </View>
+      ) : (loading || generating) ? (
+        <Sub style={{ marginTop: 16, marginHorizontal: 4 }}>A preparar a explicação…</Sub>
+      ) : null}
+
+      {questions.length > 0 && (
+        <Glass tone={tone} radius={32} style={{ marginTop: 16 }} contentStyle={{ padding: 22 }}>
+          <Text style={{ fontSize: 14, lineHeight: 20, fontWeight: '600', color: ON_VIVID, opacity: 0.74 }}>Perguntas</Text>
+          <Text accessibilityRole="header" style={{ marginTop: 22, fontSize: 26, lineHeight: 32, fontWeight: '700', letterSpacing: -0.5, color: ON_VIVID }}>Para levar à consulta</Text>
+          {questions.map((q, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+              <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: t.pill, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: t.pillFg }}>{i + 1}</Text>
+              </View>
+              <Text style={{ flex: 1, fontSize: 16, lineHeight: 23, color: ON_VIVID }}>{q.question}</Text>
             </View>
-          </View>
+          ))}
+          <PressableScale onPress={copyQuestions} accessibilityLabel="Copiar perguntas" style={{ marginTop: 16, alignSelf: 'flex-start' }}>
+            <Pill label={copied ? 'Copiado' : 'Copiar perguntas'} icon={copied ? 'check' : 'copy'} />
+          </PressableScale>
+        </Glass>
+      )}
+
+      <Note style={{ marginTop: 20 }}>{DISCLAIMER}</Note>
+
+      <Sheet visible={showFull} onClose={() => setShowFull(false)} title="O que vejo no conjunto">
+        <Body style={{ marginTop: 10 }}>{insightText}</Body>
+        {positiveText ? (
+          <>
+            <SectionTitle style={{ marginHorizontal: 0 }}>A teu favor</SectionTitle>
+            <Body>{positiveText}</Body>
+          </>
         ) : null}
-      </KeyboardAvoidingView>
-    </View>
+        {familyText ? (
+          <>
+            <SectionTitle style={{ marginHorizontal: 0 }}>Histórico familiar</SectionTitle>
+            <Body>{familyText}</Body>
+          </>
+        ) : null}
+        <Note style={{ marginTop: 16, textAlign: 'left' }}>{DISCLAIMER}</Note>
+      </Sheet>
+    </Screen>
   );
 }
